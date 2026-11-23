@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { restaurants } from '../data/restaurants'
+import OffersCarousel from './OffersCarousel'
 import FoodCategories from './FoodCategories'
 import RestaurantCarousel from './RestaurantCarousel'
 import RestaurantListing from './RestaurantListing'
@@ -20,7 +21,12 @@ export default function Home() {
 
   return (
     <main className="swiggy-home-container">
-      {/* 1. FOOD CATEGORIES SECTION ("Prasham, what's on your mind?") */}
+      {/* 1. HERO OFFERS CAROUSEL (3-Second Auto-Scrolling Banner) */}
+      <OffersCarousel />
+
+      <div className="swiggy-divider" />
+
+      {/* 2. FOOD CATEGORIES SECTION ("Prasham, what's on your mind?") */}
       <FoodCategories
         selectedCategory={selectedCategory}
         onSelectCategory={handleSelectCategory}
