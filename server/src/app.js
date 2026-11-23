@@ -3,6 +3,9 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import authRoutes from './routes/authRoutes.js';
+import couponRoutes from './routes/couponRoutes.js';
+import orderRoutes from './routes/orderRoutes.js';
+import paymentRoutes from './routes/paymentRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 
 dotenv.config();
@@ -25,13 +28,20 @@ app.use(
       }
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-razorpay-signature'],
   })
 );
 
-// Body and cookie parsers
-app.use(express.json({ limit: '10mb' }));
+// Body and cookie parsers (retains rawBody for webhook cryptographic signature verification)
+app.use(
+  express.json({
+    limit: '10mb',
+    verify: (req, res, buf) => {
+      req.rawBody = buf.toString();
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
@@ -40,12 +50,24 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    service: 'BiteBox Authentication & API Service',
+    service: 'BiteBox API Service',
   });
 });
 
 // Authentication routes
 app.use('/api/auth', authRoutes);
+
+// Coupon Discount System routes
+app.use('/api/v1/coupons', couponRoutes);
+app.use('/api/coupons', couponRoutes); // Alias for compatibility
+
+// Order Management routes
+app.use('/api/v1/orders', orderRoutes);
+app.use('/api/orders', orderRoutes); // Alias for compatibility
+
+// Razorpay Payments routes
+app.use('/api/v1/payments', paymentRoutes);
+app.use('/api/payments', paymentRoutes); // Alias for compatibility
 
 // Error handlers
 app.use(notFound);

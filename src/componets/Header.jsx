@@ -521,13 +521,31 @@ export default function Header() {
                 <span>👤 View & Edit Full Profile</span>
                 <strong>→</strong>
               </Link>
+              <Link
+                to="/my-orders"
+                className="profile-modal-action-link"
+                onClick={() => setIsProfileOpen(false)}
+              >
+                <span>🛵 My Orders & Tracking</span>
+                <strong>→</strong>
+              </Link>
+              {user.role === 'admin' && (
+                <Link
+                  to="/admin/coupons"
+                  className="profile-modal-action-link admin"
+                  onClick={() => setIsProfileOpen(false)}
+                >
+                  <span>🎟️ Admin Coupons Console</span>
+                  <strong>→</strong>
+                </Link>
+              )}
               <div className="profile-menu-item">
-                <span>📍 Default Address</span>
-                <strong>{location.area}, Bengaluru</strong>
+                <span>📍 Default Area</span>
+                <strong>{location.area}, Mumbai</strong>
               </div>
               <div className="profile-menu-item">
-                <span>🎁 Active Rewards</span>
-                <strong>4 Discount Coupons Available</strong>
+                <span>🎁 Active Discounts</span>
+                <strong>5 Coupons Available (BITEBOX20, FLAT50...)</strong>
               </div>
               <button
                 type="button"

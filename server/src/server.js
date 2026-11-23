@@ -1,13 +1,16 @@
 import dotenv from 'dotenv';
 import app from './app.js';
 import { connectDB } from './config/database.js';
+import { seedInitialCoupons } from './controllers/couponController.js';
 
 dotenv.config();
 
 const PORT = Number(process.env.PORT) || 5001;
 
-// Connect to Database
-connectDB();
+// Connect to Database and seed initial coupons
+connectDB().then(() => {
+  seedInitialCoupons();
+});
 
 // Start HTTP Server
 const server = app.listen(PORT, () => {

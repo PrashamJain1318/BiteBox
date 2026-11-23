@@ -10,6 +10,10 @@ import Signup from './componets/Signup'
 import ForgotPassword from './componets/ForgotPassword'
 import ResetPassword from './componets/ResetPassword'
 import Profile from './componets/Profile'
+import CheckoutPage from './componets/CheckoutPage'
+import PaymentStatusPage from './componets/PaymentStatusPage'
+import TrackOrderPage from './componets/TrackOrderPage'
+import AdminCoupons from './componets/AdminCoupons'
 import ProtectedRoute from './componets/ProtectedRoute'
 import { CartContext } from './context/cartContext'
 import { AuthProvider } from './context/AuthContext'
@@ -84,6 +88,54 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Cart />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/checkout"
+              element={
+                <ProtectedRoute>
+                  <CheckoutPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/order-success/:orderId"
+              element={
+                <ProtectedRoute>
+                  <PaymentStatusPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/payment-status"
+              element={
+                <ProtectedRoute>
+                  <PaymentStatusPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/track-order/:orderId"
+              element={
+                <ProtectedRoute>
+                  <TrackOrderPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/my-orders"
+              element={
+                <ProtectedRoute>
+                  <TrackOrderPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/coupons"
+              element={
+                <ProtectedRoute>
+                  <AdminCoupons />
                 </ProtectedRoute>
               }
             />

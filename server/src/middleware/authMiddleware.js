@@ -68,3 +68,42 @@ export const authorize = (...roles) => {
     next();
   };
 };
+
+// Optional auth middleware (populates req.user if token is present, but doesn't block guests)
+export const optionalAuth = async (req, res, next) => {
+  let token;
+  if (req.cookies && req.cookies.bitebox_token) {
+    token = req.cookies.bitebox_token;
+  } else if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith('Bearer')
+  ) {
+    token = req.headers.authorization.split(' ')[1];
+  }
+
+  if (!token) {
+    req.user = null;
+    return next();
+  }
+
+  try {
+    const secret = process.env.JWT_SECRET || 'bitebox_default_secure_jwt_secret_key_2026';
+    const decoded = jwt.verify(token, secret);
+
+    try {
+      req.user = await User.findById(decoded.id).select('-passwordHash');
+    } catch {
+      req.user = null;
+    }
+
+    if (!req.user && global.__bitebox_mock_users) {
+      req.user = global.__bitebox_mock_users.find(
+        (u) => u.id === decoded.id || u._id === decoded.id
+      );
+    }
+  } catch {
+    req.user = null;
+  }
+
+  next();
+};

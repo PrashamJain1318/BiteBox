@@ -514,3 +514,98 @@ export const resetPassword = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * @desc    Get saved delivery addresses for logged in user
+ * @route   GET /api/auth/addresses
+ * @access  Private
+ */
+export const getAddresses = async (req, res, next) => {
+  try {
+    const user = req.user;
+    return res.status(200).json({
+      success: true,
+      addresses: user.addresses || [],
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Add a new delivery address
+ * @route   POST /api/auth/addresses
+ * @access  Private
+ */
+export const addAddress = async (req, res, next) => {
+  try {
+    const { fullName, phone, tag, addressLine, area, city, pincode, isDefault } = req.body;
+
+    if (!fullName || !phone || !addressLine || !area || !city || !pincode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide recipient name, phone, address line, area, city, and pincode.',
+      });
+    }
+
+    const newAddress = {
+      fullName,
+      phone,
+      tag: tag || 'Home',
+      addressLine,
+      area,
+      city,
+      pincode,
+      isDefault: Boolean(isDefault),
+    };
+
+    const user = req.user;
+    if (!user.addresses) user.addresses = [];
+
+    if (newAddress.isDefault) {
+      user.addresses.forEach((a) => (a.isDefault = false));
+    }
+
+    user.addresses.push(newAddress);
+
+    if (user.save) {
+      await user.save();
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'Address saved successfully.',
+      addresses: user.addresses,
+      address: newAddress,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Delete a delivery address
+ * @route   DELETE /api/auth/addresses/:addressId
+ * @access  Private
+ */
+export const deleteAddress = async (req, res, next) => {
+  try {
+    const { addressId } = req.params;
+    const user = req.user;
+
+    if (user.addresses) {
+      user.addresses = user.addresses.filter((a) => a._id?.toString() !== addressId && a.id !== addressId);
+      if (user.save) {
+        await user.save();
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Address removed successfully.',
+      addresses: user.addresses || [],
+    });
+  } catch (error) {
+    next(error);
+  }
+};

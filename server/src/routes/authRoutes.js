@@ -9,6 +9,9 @@ import {
   updateProfile,
   forgotPassword,
   resetPassword,
+  getAddresses,
+  addAddress,
+  deleteAddress,
 } from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -43,6 +46,9 @@ router.post('/google', authLimiter, googleAuth);
 router.post('/logout', logout);
 router.get('/me', protect, getMe);
 router.put('/profile', protect, updateProfile);
+router.get('/addresses', protect, getAddresses);
+router.post('/addresses', protect, addAddress);
+router.delete('/addresses/:addressId', protect, deleteAddress);
 router.post('/forgot-password', passwordResetLimiter, forgotPassword);
 router.post('/reset-password', passwordResetLimiter, resetPassword);
 
