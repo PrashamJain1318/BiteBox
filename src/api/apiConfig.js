@@ -3,11 +3,27 @@
  * Provides consistent base URL, auth token handling, and robust fetch utilities.
  */
 
-// Normalize base URL: strip trailing slashes
-const rawApiUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5002/api/v1').replace(/\/+$/, '');
+// Dynamically determine base API URL based on environment
+const getBaseApiUrl = () => {
+  // If explicitly provided via VITE_API_URL, use it
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL.replace(/\/+$/, '');
+  }
 
-// Canonical API_BASE_URL (defaults to http://localhost:5002/api/v1)
-export const API_BASE_URL = rawApiUrl;
+  // In browser on deployed host (e.g. Vercel: bite-box-six-beta.vercel.app), use same-origin relative /api/v1
+  if (typeof window !== 'undefined' && window.location) {
+    const hostname = window.location.hostname;
+    if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      return `${window.location.origin}/api/v1`;
+    }
+  }
+
+  // Local development default
+  return 'http://localhost:5002/api/v1';
+};
+
+// Canonical API_BASE_URL
+export const API_BASE_URL = getBaseApiUrl();
 
 // Base root without /v1 (e.g. http://localhost:5002/api)
 export const API_ROOT = API_BASE_URL.replace(/\/v1$/, '');
