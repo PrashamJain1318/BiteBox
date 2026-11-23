@@ -69,7 +69,7 @@ export const signup = async (req, res, next) => {
         passwordHash,
         provider: 'local',
       });
-    } catch (dbErr) {
+    } catch {
       // Mock store fallback if MongoDB is offline
       const mockId = 'usr_' + Date.now();
       user = {

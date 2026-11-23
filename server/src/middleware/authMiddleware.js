@@ -48,7 +48,7 @@ export const protect = async (req, res, next) => {
     }
 
     next();
-  } catch (error) {
+  } catch {
     return res.status(401).json({
       success: false,
       message: 'Session invalid or expired. Please sign in again.',

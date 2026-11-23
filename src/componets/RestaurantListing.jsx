@@ -5,6 +5,8 @@ export default function RestaurantListing({
   restaurants = [],
   activeCategory = null,
   onClearCategory = () => {},
+  activeCity = null,
+  onClearCity = () => {},
 }) {
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState('relevance') // 'relevance' | 'rating' | 'delivery' | 'cost_asc' | 'cost_desc'
@@ -122,6 +124,7 @@ export default function RestaurantListing({
     hasOffersOnly,
     priceFilter !== 'all',
     activeCategory !== null,
+    activeCity !== null,
     search.trim() !== '',
     sortBy !== 'relevance',
   ].filter(Boolean).length
@@ -135,6 +138,7 @@ export default function RestaurantListing({
     setHasOffersOnly(false)
     setPriceFilter('all')
     onClearCategory()
+    onClearCity()
   }
 
   const sortLabels = {
@@ -149,9 +153,13 @@ export default function RestaurantListing({
     <section id="restaurants" className="restaurant-listing-section">
       <div className="section-header-row">
         <div>
-          <h2 className="swiggy-section-title">Restaurants with online food delivery near you</h2>
+          <h2 className="swiggy-section-title">
+            {activeCity
+              ? `Restaurants with online food delivery in ${activeCity}`
+              : 'Restaurants with online food delivery near you'}
+          </h2>
           <p className="swiggy-section-sub">
-            {filteredAndSortedRestaurants.length} restaurants open now with fresh menus
+            {filteredAndSortedRestaurants.length} restaurants open now {activeCity ? `in ${activeCity}` : 'with fresh menus'}
           </p>
         </div>
       </div>
@@ -159,6 +167,17 @@ export default function RestaurantListing({
       {/* TOOLBAR: Sorting, Filters & Search */}
       <div className="swiggy-toolbar">
         <div className="swiggy-toolbar__filters">
+          {activeCity && (
+            <button
+              type="button"
+              className="filter-pill-btn active"
+              onClick={onClearCity}
+              title="Click to clear city filter"
+              style={{ backgroundColor: '#ff5200', color: '#fff', borderColor: '#ff5200' }}
+            >
+              📍 {activeCity} ✕
+            </button>
+          )}
           {/* SORT BY DROPDOWN */}
           <div className="toolbar-dropdown-wrap">
             <button
