@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams, Link, useLocation } from 'react-router-dom'
+import { apiFetch } from '../api/apiConfig'
 import '../style.css'
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api'
 
 export default function PaymentStatusPage() {
   const { orderId: paramOrderId } = useParams()
@@ -21,7 +20,7 @@ export default function PaymentStatusPage() {
 
   useEffect(() => {
     if (effectiveOrderId && !order) {
-      fetch(`${API_BASE_URL}/v1/orders/${effectiveOrderId}`, { credentials: 'include' })
+      apiFetch(`/orders/${effectiveOrderId}`)
         .then((res) => res.json())
         .then((data) => {
           if (data.success && data.order) {

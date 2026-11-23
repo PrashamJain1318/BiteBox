@@ -2,9 +2,8 @@ import { useState, useEffect, useContext } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { CartContext } from '../context/cartContext'
 import { useAuth } from '../context/AuthContext'
+import { apiFetch } from '../api/apiConfig'
 import '../style.css'
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api'
 
 // Helper to dynamically load Razorpay checkout script
 function loadRazorpayScript() {
@@ -85,7 +84,7 @@ export default function CheckoutPage() {
 
   // Fetch saved delivery addresses
   useEffect(() => {
-    fetch(`${API_BASE_URL}/auth/addresses`, { credentials: 'include' })
+    apiFetch('/auth/addresses')
       .then((res) => res.json())
       .then((data) => {
         if (data.success && Array.isArray(data.addresses) && data.addresses.length > 0) {
@@ -151,10 +150,8 @@ export default function CheckoutPage() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/addresses`, {
+      const res = await apiFetch('/auth/addresses', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify(newAddress),
       })
       const data = await res.json()
@@ -191,35 +188,59 @@ export default function CheckoutPage() {
       return
     }
 
+    if (!activeAddress.fullName || !activeAddress.phone || !activeAddress.addressLine || !activeAddress.area || !activeAddress.pincode) {
+      setErrorMessage('Please complete all delivery address fields (recipient name, phone, address, area, and pincode).')
+      return
+    }
+
     setIsProcessing(true)
     setErrorMessage('')
 
     try {
-      // 1. Create order on backend
-      const res = await fetch(`${API_BASE_URL}/v1/orders`, {
+      // 1. Create order on backend with sanitized data
+      const res = await apiFetch('/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           items: cart.map((i) => ({
-            productId: i.id,
-            quantity: i.qty || 1,
+            productId: String(i.id),
+            quantity: Math.max(1, Number(i.qty) || 1),
             name: i.name,
-            price: i.price,
+            price: Number(i.price) || 0,
             image: i.img,
             restaurantName: i.restaurantName,
           })),
-          deliveryAddress: activeAddress,
+          deliveryAddress: {
+            fullName: String(activeAddress.fullName || '').trim(),
+            phone: String(activeAddress.phone || '').trim(),
+            tag: ['Home', 'Work', 'Other'].includes(activeAddress.tag) ? activeAddress.tag : 'Home',
+            addressLine: String(activeAddress.addressLine || '').trim(),
+            area: String(activeAddress.area || '').trim(),
+            city: String(activeAddress.city || 'Mumbai').trim(),
+            pincode: String(activeAddress.pincode || '').trim(),
+          },
           couponCode: appliedCoupon?.code,
           paymentMethod,
         }),
       })
 
-      const data = await res.json()
+      let data
+      try {
+        data = await res.json()
+      } catch {
+        data = { success: false, message: `Server error (HTTP ${res.status}). Please try again.` }
+      }
 
-      if (!data.success || !data.order) {
-        setErrorMessage(data.message || 'Failed to place order. Please try again.')
+      if (!res.ok || !data.success || !data.order) {
         setIsProcessing(false)
+        if (res.status === 401) {
+          setErrorMessage('Please sign in or log in to complete your checkout.')
+        } else if (res.status === 400) {
+          setErrorMessage(data.message || 'Invalid order data. Please check your address and items.')
+        } else if (res.status === 404) {
+          setErrorMessage('Order service endpoint not found. Please verify the backend is running.')
+        } else {
+          setErrorMessage(data.message || `Failed to place order (HTTP ${res.status}). Please try again.`)
+        }
         return
       }
 
@@ -227,10 +248,11 @@ export default function CheckoutPage() {
 
       // 2A. Cash on Delivery (COD) Flow
       if (paymentMethod === 'cod') {
-        // Clear cart
+        // Clear cart & applied coupon
         setCart([])
         localStorage.removeItem('bitebox_cart')
         sessionStorage.removeItem('bitebox_applied_coupon')
+        setIsProcessing(false)
         navigate(`/order-success/${order.orderId}`, { state: { order } })
         return
       }
@@ -240,7 +262,6 @@ export default function CheckoutPage() {
 
       if (!isScriptLoaded || !window.Razorpay) {
         console.warn('⚠️ Razorpay SDK script failed to load from CDN. Using test mode confirmation.')
-        // Test simulated verification fallback
         handleSimulatedVerification(order)
         return
       }
@@ -261,12 +282,9 @@ export default function CheckoutPage() {
         image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=200&q=80',
         order_id: razorpayOrder.id,
         handler: async function (response) {
-          // Cryptographic verification on backend
           try {
-            const verifyRes = await fetch(`${API_BASE_URL}/v1/payments/verify`, {
+            const verifyRes = await apiFetch('/payments/verify', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
               body: JSON.stringify({
                 orderId: order.orderId,
                 razorpay_order_id: response.razorpay_order_id,
@@ -281,11 +299,14 @@ export default function CheckoutPage() {
               setCart([])
               localStorage.removeItem('bitebox_cart')
               sessionStorage.removeItem('bitebox_applied_coupon')
+              setIsProcessing(false)
               navigate(`/order-success/${order.orderId}`, { state: { order: verifyData.order || order } })
             } else {
+              setIsProcessing(false)
               navigate(`/payment-status?status=failed&orderId=${order.orderId}&error=${encodeURIComponent(verifyData.message)}`)
             }
-          } catch (vErr) {
+          } catch {
+            setIsProcessing(false)
             navigate(`/payment-status?status=failed&orderId=${order.orderId}&error=VerificationNetworkError`)
           }
         },
@@ -314,7 +335,7 @@ export default function CheckoutPage() {
         setIsProcessing(false)
         navigate(
           `/payment-status?status=failed&orderId=${order.orderId}&error=${encodeURIComponent(
-            response.error.description || 'Payment was declined.'
+            response.error?.description || 'Payment was declined.'
           )}`
         )
       })
@@ -322,18 +343,20 @@ export default function CheckoutPage() {
       rzpInstance.open()
     } catch (err) {
       console.error('Checkout error:', err)
-      setErrorMessage('Network or server error during checkout. Please try again.')
       setIsProcessing(false)
+      if (err.name === 'TypeError' || err.message?.includes('fetch') || err.message?.includes('Failed to fetch')) {
+        setErrorMessage('Cannot connect to BiteBox server (port 5002). Please ensure the backend server is running.')
+      } else {
+        setErrorMessage(err.message || 'An unexpected error occurred during checkout. Please try again.')
+      }
     }
   }
 
   // Simulated verification for test environments
   async function handleSimulatedVerification(order) {
     try {
-      const verifyRes = await fetch(`${API_BASE_URL}/v1/payments/verify`, {
+      const verifyRes = await apiFetch('/payments/verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           orderId: order.orderId,
           razorpay_order_id: order.razorpayOrderId || `order_test_${Date.now()}`,
@@ -346,8 +369,10 @@ export default function CheckoutPage() {
         setCart([])
         localStorage.removeItem('bitebox_cart')
         sessionStorage.removeItem('bitebox_applied_coupon')
+        setIsProcessing(false)
         navigate(`/order-success/${order.orderId}`, { state: { order: verifyData.order || order } })
       } else {
+        setIsProcessing(false)
         navigate(`/payment-status?status=failed&orderId=${order.orderId}`)
       }
     } catch {
@@ -547,8 +572,24 @@ export default function CheckoutPage() {
             </div>
 
             {errorMessage && (
-              <div className="checkout-error-banner">
-                ⚠️ {errorMessage}
+              <div className="checkout-error-banner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>⚠️ {errorMessage}</span>
+                <button
+                  type="button"
+                  onClick={() => setErrorMessage('')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#991B1B',
+                    fontWeight: 'bold',
+                    fontSize: '16px',
+                    marginLeft: '8px',
+                  }}
+                  title="Dismiss error"
+                >
+                  ✕
+                </button>
               </div>
             )}
 
@@ -560,7 +601,7 @@ export default function CheckoutPage() {
               onClick={handlePlaceOrder}
             >
               {isProcessing
-                ? 'Processing Payment...'
+                ? (paymentMethod === 'cod' ? 'Placing Order...' : 'Processing Payment...')
                 : paymentMethod === 'cod'
                 ? `Place Order (Cash on Delivery) • ₹${grandTotal}`
                 : `Pay ₹${grandTotal} via ${

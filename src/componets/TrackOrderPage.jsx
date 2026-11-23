@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { apiFetch } from '../api/apiConfig'
 import '../style.css'
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api'
 
 export default function TrackOrderPage() {
   const { orderId } = useParams()
@@ -15,7 +13,7 @@ export default function TrackOrderPage() {
 
   useEffect(() => {
     if (orderId) {
-      fetch(`${API_BASE_URL}/v1/orders/${orderId}`, { credentials: 'include' })
+      apiFetch(`/orders/${orderId}`)
         .then((res) => res.json())
         .then((data) => {
           if (data.success && data.order) {
@@ -36,7 +34,7 @@ export default function TrackOrderPage() {
         .finally(() => setLoading(false))
     } else {
       // Fetch user's order history
-      fetch(`${API_BASE_URL}/v1/orders/my-orders`, { credentials: 'include' })
+      apiFetch('/orders/my-orders')
         .then((res) => res.json())
         .then((data) => {
           if (data.success && data.orders) {

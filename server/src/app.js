@@ -2,6 +2,16 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Explicitly load server/.env first, then root .env
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+
 import authRoutes from './routes/authRoutes.js';
 import couponRoutes from './routes/couponRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
@@ -14,7 +24,15 @@ const app = express();
 
 // Allowed origins
 const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
-const allowedOrigins = [clientUrl, 'http://localhost:5173', 'http://127.0.0.1:5173'];
+const allowedOrigins = [
+  clientUrl,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5174',
+  'http://localhost:3000',
+  'http://localhost:5002',
+];
 
 // CORS configuration supporting credentials and cookies
 app.use(
@@ -45,16 +63,27 @@ app.use(
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-// Health check endpoint
+// Health check endpoints (GET /api/v1/health and GET /api/health)
+app.get('/api/v1/health', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'BiteBox API is running',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.get('/api/health', (req, res) => {
   res.status(200).json({
+    success: true,
     status: 'healthy',
+    message: 'BiteBox API is running',
     timestamp: new Date().toISOString(),
     service: 'BiteBox API Service',
   });
 });
 
 // Authentication routes
+app.use('/api/v1/auth', authRoutes);
 app.use('/api/auth', authRoutes);
 
 // Coupon Discount System routes
@@ -71,7 +100,9 @@ app.use('/api/payments', paymentRoutes); // Alias for compatibility
 
 // Direct Standard Razorpay Endpoints (POST /api/create-order & POST /api/verify-payment)
 import { createStandardOrder, verifyStandardPayment } from './controllers/paymentController.js';
+app.post('/api/v1/create-order', createStandardOrder);
 app.post('/api/create-order', createStandardOrder);
+app.post('/api/v1/verify-payment', verifyStandardPayment);
 app.post('/api/verify-payment', verifyStandardPayment);
 
 // Error handlers

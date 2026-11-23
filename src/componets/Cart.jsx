@@ -1,9 +1,8 @@
 import { useState, useContext, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { CartContext } from '../context/cartContext'
+import { apiFetch } from '../api/apiConfig'
 import '../style.css'
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api'
 
 function launchConfetti() {
   const canvas = document.createElement('canvas')
@@ -104,7 +103,7 @@ export default function Cart() {
 
   // Fetch available sample coupons on mount
   useEffect(() => {
-    fetch(`${API_BASE_URL}/v1/coupons/available`)
+    apiFetch('/coupons/available')
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.coupons) {
@@ -205,10 +204,8 @@ export default function Cart() {
     setCouponSuccess('')
 
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/coupons/validate`, {
+      const res = await apiFetch('/coupons/validate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           code: targetCode,
           items: cart.map((i) => ({ productId: i.id, quantity: i.qty || 1, name: i.name, price: i.price })),
@@ -228,7 +225,7 @@ export default function Cart() {
         setAppliedCoupon(null)
         sessionStorage.removeItem('bitebox_applied_coupon')
       }
-    } catch (err) {
+    } catch {
       setCouponError('Could not validate coupon. Please check connection and try again.')
     } finally {
       setIsValidating(false)

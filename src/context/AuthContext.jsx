@@ -1,8 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { API_BASE_URL, apiFetch, setAuthToken, clearAuthToken } from '../api/apiConfig';
 
 export const AuthContext = createContext(null);
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -16,17 +15,14 @@ export function AuthProvider({ children }) {
   const checkAuth = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE_URL}/auth/me`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // sends httpOnly bitebox_token cookie
-      });
+      const res = await apiFetch('/auth/me');
 
       const data = await res.json();
       if (res.ok && data.success && data.user) {
         setUser(data.user);
+        if (data.token) {
+          setAuthToken(data.token);
+        }
         sessionStorage.setItem('bitebox_active_user', JSON.stringify(data.user));
       } else {
         // Check session storage fallback if local dev
@@ -41,7 +37,7 @@ export function AuthProvider({ children }) {
           setUser(null);
         }
       }
-    } catch (err) {
+    } catch {
       // Backend not running yet or network error: check session cache
       const cached = sessionStorage.getItem('bitebox_active_user');
       if (cached) {
@@ -66,10 +62,8 @@ export function AuthProvider({ children }) {
   const signup = async ({ name, email, password }) => {
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/signup`, {
+      const res = await apiFetch('/auth/signup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ name, email, password }),
       });
 
@@ -82,9 +76,12 @@ export function AuthProvider({ children }) {
       }
 
       setUser(data.user);
+      if (data.token) {
+        setAuthToken(data.token);
+      }
       sessionStorage.setItem('bitebox_active_user', JSON.stringify(data.user));
       return { success: true, user: data.user, message: data.message };
-    } catch (err) {
+    } catch {
       // Offline fallback simulator for smooth dev preview
       const fallbackUser = {
         id: 'usr_' + Date.now(),
@@ -106,10 +103,8 @@ export function AuthProvider({ children }) {
   const login = async ({ email, password }) => {
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      const res = await apiFetch('/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ email, password }),
       });
 
@@ -122,9 +117,12 @@ export function AuthProvider({ children }) {
       }
 
       setUser(data.user);
+      if (data.token) {
+        setAuthToken(data.token);
+      }
       sessionStorage.setItem('bitebox_active_user', JSON.stringify(data.user));
       return { success: true, user: data.user, message: data.message };
-    } catch (err) {
+    } catch {
       // Offline fallback: check demo credentials
       if (email && password) {
         const demoUser = {
@@ -155,10 +153,8 @@ export function AuthProvider({ children }) {
         ? { idToken: idTokenOrPayload }
         : idTokenOrPayload;
 
-      const res = await fetch(`${API_BASE_URL}/auth/google`, {
+      const res = await apiFetch('/auth/google', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify(bodyPayload),
       });
 
@@ -171,9 +167,12 @@ export function AuthProvider({ children }) {
       }
 
       setUser(data.user);
+      if (data.token) {
+        setAuthToken(data.token);
+      }
       sessionStorage.setItem('bitebox_active_user', JSON.stringify(data.user));
       return { success: true, user: data.user };
-    } catch (err) {
+    } catch {
       // Demo Google User fallback
       const googleUser = {
         id: 'usr_google_' + Date.now(),
@@ -194,14 +193,14 @@ export function AuthProvider({ children }) {
   // Logout function
   const logout = async () => {
     try {
-      await fetch(`${API_BASE_URL}/auth/logout`, {
+      await apiFetch('/auth/logout', {
         method: 'POST',
-        credentials: 'include',
       });
     } catch {
       // Ignore network errors on logout
     } finally {
       setUser(null);
+      clearAuthToken();
       sessionStorage.removeItem('bitebox_active_user');
     }
   };
@@ -227,7 +226,7 @@ export function AuthProvider({ children }) {
       setUser(data.user);
       sessionStorage.setItem('bitebox_active_user', JSON.stringify(data.user));
       return { success: true, user: data.user, message: data.message };
-    } catch (err) {
+    } catch {
       if (user) {
         const updated = {
           ...user,
@@ -246,9 +245,8 @@ export function AuthProvider({ children }) {
   const forgotPassword = async (email) => {
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+      const res = await apiFetch('/auth/forgot-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
       const data = await res.json();
@@ -257,7 +255,7 @@ export function AuthProvider({ children }) {
         message: data.message || 'Password reset link sent to your email.',
         devResetUrl: data.devResetUrl,
       };
-    } catch (err) {
+    } catch {
       return {
         success: true,
         message: 'If an account exists with that email, a password reset link has been sent.',
@@ -269,9 +267,8 @@ export function AuthProvider({ children }) {
   const resetPassword = async (token, password) => {
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+      const res = await apiFetch('/auth/reset-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, password }),
       });
       const data = await res.json();
@@ -283,7 +280,7 @@ export function AuthProvider({ children }) {
         sessionStorage.setItem('bitebox_active_user', JSON.stringify(data.user));
       }
       return { success: true, message: data.message };
-    } catch (err) {
+    } catch {
       return { success: false, message: 'Unable to reset password. Please try again.' };
     }
   };

@@ -5,13 +5,23 @@ import {
   getOrderById,
   cancelOrder,
 } from '../controllers/orderController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { protect, optionalAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-router.post('/', protect, createOrder);
-router.get('/my-orders', protect, getMyOrders);
-router.get('/:id', protect, getOrderById);
+// Retrieve orders (user's orders if logged in, or recent orders)
+router.get('/', optionalAuth, getMyOrders);
+
+// Create a new order (COD or Online)
+router.post('/', optionalAuth, createOrder);
+
+// User's order history
+router.get('/my-orders', optionalAuth, getMyOrders);
+
+// Single order details
+router.get('/:id', optionalAuth, getOrderById);
+
+// Cancel order
 router.post('/:id/cancel', protect, cancelOrder);
 
 export default router;

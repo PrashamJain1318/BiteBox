@@ -285,4 +285,256 @@ test('BiteBox Coupon & Payment System Test Suite', async (t) => {
     assert.equal(typeof generated, 'string');
     assert.equal(generated.length, 64); // 64 hex characters (256 bits)
   });
+
+  // 23. Cash on Delivery (COD) Order Logic
+  await t.test('23. COD order sets paymentMethod=cod, paymentStatus=unpaid, orderStatus=placed with no Razorpay calls', () => {
+    const codOrder = {
+      orderId: 'BB-2026-COD01',
+      user: 'user_test_cod',
+      items: [margheritaPizza],
+      deliveryAddress: {
+        fullName: 'Prasham Jain',
+        phone: '9876543210',
+        tag: 'Home',
+        addressLine: 'A-402 Sunshine Heights',
+        area: 'Bandra West',
+        city: 'Mumbai',
+        pincode: '400050',
+      },
+      paymentMethod: 'cod',
+      paymentStatus: 'unpaid',
+      orderStatus: 'placed',
+      placedAt: new Date(),
+    };
+
+    assert.equal(codOrder.paymentMethod, 'cod');
+    assert.equal(codOrder.paymentStatus, 'unpaid');
+    assert.equal(codOrder.orderStatus, 'placed');
+    assert.equal(codOrder.razorpayOrderId, undefined);
+  });
+
+  // 24. Address Validation
+  await t.test('24. Complete address validation rules', () => {
+    const validAddress = {
+      fullName: 'Prasham Jain',
+      phone: '9876543210',
+      tag: 'Home',
+      addressLine: 'A-402 Sunshine Heights',
+      area: 'Bandra West',
+      city: 'Mumbai',
+      pincode: '400050',
+    };
+
+    const isComplete = (addr) =>
+      Boolean(
+        addr &&
+        addr.fullName &&
+        addr.phone &&
+        addr.addressLine &&
+        addr.area &&
+        addr.city &&
+        addr.pincode
+      );
+
+    assert.equal(isComplete(validAddress), true);
+    assert.equal(isComplete({ ...validAddress, pincode: '' }), false);
+    assert.equal(isComplete({ ...validAddress, phone: '' }), false);
+  });
+
+  // 25. Health check endpoint contract
+  await t.test('25. Backend health check returns success: true and message: BiteBox API is running', async () => {
+    const appModule = await import('../server/src/app.js');
+    const expressApp = appModule.default;
+    assert.ok(expressApp);
+
+    // Verify route is registered in express router
+    const hasHealthRoute = expressApp._router.stack.some(
+      (layer) => layer.route && layer.route.path === '/api/v1/health'
+    );
+    assert.equal(hasHealthRoute, true);
+  });
+
+  // 26. Controller: createOrder with Cash on Delivery (COD)
+  await t.test('26. createOrder controller handles COD order, sets placed/unpaid status, and sanitizes address', async () => {
+    const { createOrder } = await import('../server/src/controllers/orderController.js');
+
+    let responseStatus = null;
+    let responseJson = null;
+
+    const mockRes = {
+      status(code) {
+        responseStatus = code;
+        return this;
+      },
+      json(data) {
+        responseJson = data;
+        return this;
+      },
+    };
+
+    const mockReq = {
+      body: {
+        items: [
+          {
+            productId: '1',
+            name: 'Margherita Pizza',
+            price: 199,
+            quantity: 2,
+            image: 'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=500',
+            restaurantName: 'La Pinoz Pizza',
+          },
+        ],
+        deliveryAddress: {
+          _id: 'demo-addr-1',
+          fullName: 'Prasham Jain',
+          phone: '9876543210',
+          tag: 'Home',
+          addressLine: 'A-402, Sunshine Heights, Linking Road',
+          area: 'Bandra West',
+          city: 'Mumbai',
+          pincode: '400050',
+        },
+        couponCode: '',
+        paymentMethod: 'cod',
+      },
+      user: {
+        _id: 'usr_mock_user_123',
+        id: 'usr_mock_user_123',
+        name: 'Prasham Jain',
+        role: 'user',
+      },
+    };
+
+    await createOrder(mockReq, mockRes);
+
+    assert.equal(responseStatus, 201);
+    assert.equal(responseJson.success, true);
+    assert.equal(responseJson.order.paymentMethod, 'cod');
+    assert.equal(responseJson.order.paymentStatus, 'unpaid');
+    assert.equal(responseJson.order.orderStatus, 'placed');
+    assert.equal(responseJson.order.deliveryAddress._id, undefined); // Sanitized, no client _id
+    assert.equal(responseJson.order.deliveryAddress.fullName, 'Prasham Jain');
+    assert.ok(responseJson.order.orderId.startsWith('BB-2026-'));
+    assert.ok(responseJson.order.pricing.grandTotal > 0);
+
+    // Test rejection with missing address
+    let badResStatus = null;
+    let badResJson = null;
+    const badRes = {
+      status(code) {
+        badResStatus = code;
+        return this;
+      },
+      json(data) {
+        badResJson = data;
+        return this;
+      },
+    };
+    await createOrder(
+      {
+        body: {
+          items: mockReq.body.items,
+          deliveryAddress: { fullName: '' },
+          paymentMethod: 'cod',
+        },
+        user: mockReq.user,
+      },
+      badRes
+    );
+    assert.equal(badResStatus, 400);
+    assert.equal(badResJson.success, false);
+  });
+
+  // 27. Controller: createOrder with Online Payment (UPI QR / Cards / NetBanking)
+  await t.test('27. createOrder controller handles Online Payment (UPI QR) with resilient Razorpay order creation', async () => {
+    const { createOrder } = await import('../server/src/controllers/orderController.js');
+
+    let responseStatus = null;
+    let responseJson = null;
+
+    const mockRes = {
+      status(code) {
+        responseStatus = code;
+        return this;
+      },
+      json(data) {
+        responseJson = data;
+        return this;
+      },
+    };
+
+    const mockReq = {
+      body: {
+        items: [
+          {
+            productId: 'biryani-1',
+            name: 'Special Egg Dum Biryani',
+            price: 215,
+            quantity: 2,
+            image: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=500',
+            restaurantName: 'BiteBox Partner Kitchen',
+          },
+        ],
+        deliveryAddress: {
+          fullName: 'PRASHAMJAINT',
+          phone: '9876543210',
+          tag: 'Home',
+          addressLine: 'Flat 12B, Palm View Apts',
+          area: 'Andheri West',
+          city: 'Mumbai',
+          pincode: '400053',
+        },
+        couponCode: '',
+        paymentMethod: 'upi_qr',
+      },
+      user: {
+        _id: 'usr_mock_user_online',
+        id: 'usr_mock_user_online',
+        name: 'PRASHAMJAINT',
+        role: 'user',
+      },
+    };
+
+    await createOrder(mockReq, mockRes);
+
+    assert.equal(responseStatus, 201);
+    assert.equal(responseJson.success, true);
+    assert.equal(responseJson.order.paymentMethod, 'upi_qr');
+    assert.equal(responseJson.order.paymentStatus, 'pending');
+    assert.equal(responseJson.order.orderStatus, 'placed');
+    assert.ok(responseJson.order.orderId.startsWith('BB-2026-'));
+    assert.ok(responseJson.razorpayOrder);
+    assert.ok(responseJson.razorpayOrder.id);
+    assert.ok(responseJson.razorpayOrder.keyId);
+    assert.equal(responseJson.razorpayOrder.amount, Math.round(responseJson.order.pricing.grandTotal * 100));
+  });
+
+  // 28. Controller: GET /api/v1/orders returns HTTP 200 list (not 404 Not Found)
+  await t.test('28. getMyOrders controller handles GET /api/v1/orders without 404 error', async () => {
+    const { getMyOrders } = await import('../server/src/controllers/orderController.js');
+
+    let responseStatus = null;
+    let responseJson = null;
+
+    const mockRes = {
+      status(code) {
+        responseStatus = code;
+        return this;
+      },
+      json(data) {
+        responseJson = data;
+        return this;
+      },
+    };
+
+    const mockReq = {
+      user: null, // Test unauthenticated GET /api/v1/orders
+    };
+
+    await getMyOrders(mockReq, mockRes);
+
+    assert.equal(responseStatus, 200);
+    assert.equal(responseJson.success, true);
+    assert.ok(Array.isArray(responseJson.orders));
+  });
 });

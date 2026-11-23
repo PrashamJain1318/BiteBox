@@ -10,6 +10,15 @@ import { protect, optionalAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
+// GET /api/v1/payments - Health/status check
+router.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'BiteBox Payments Service is operational.',
+    methods: ['upi_qr', 'upi_app', 'card', 'netbanking', 'cod'],
+  });
+});
+
 // Standard Razorpay Order Creation (accepts { amount (paise), currency, receipt } or BiteBox orderId)
 router.post('/create-order', optionalAuth, (req, res, next) => {
   if (req.body && req.body.amount !== undefined) {

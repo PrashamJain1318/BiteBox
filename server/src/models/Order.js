@@ -1,95 +1,104 @@
 import mongoose from 'mongoose';
 
-const orderItemSchema = new mongoose.Schema({
-  productId: {
-    type: String,
-    required: true,
+const orderItemSchema = new mongoose.Schema(
+  {
+    productId: {
+      type: String,
+      required: true,
+    },
+    name: {
+      type: String,
+      required: true,
+    },
+    price: {
+      type: Number,
+      required: true,
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: [1, 'Quantity must be at least 1'],
+      default: 1,
+    },
+    image: {
+      type: String,
+    },
+    restaurantName: {
+      type: String,
+      default: 'BiteBox Partner Kitchen',
+    },
+    itemTotal: {
+      type: Number,
+      required: true,
+    },
   },
-  name: {
-    type: String,
-    required: true,
-  },
-  price: {
-    type: Number,
-    required: true,
-  },
-  quantity: {
-    type: Number,
-    required: true,
-    min: [1, 'Quantity must be at least 1'],
-    default: 1,
-  },
-  image: {
-    type: String,
-  },
-  restaurantName: {
-    type: String,
-    default: 'BiteBox Partner Kitchen',
-  },
-  itemTotal: {
-    type: Number,
-    required: true,
-  },
-});
+  { _id: false }
+);
 
-const deliveryAddressSchema = new mongoose.Schema({
-  fullName: {
-    type: String,
-    required: [true, 'Please provide delivery recipient name'],
+const deliveryAddressSchema = new mongoose.Schema(
+  {
+    fullName: {
+      type: String,
+      required: [true, 'Please provide delivery recipient name'],
+    },
+    phone: {
+      type: String,
+      required: [true, 'Please provide delivery phone number'],
+    },
+    tag: {
+      type: String,
+      enum: ['Home', 'Work', 'Other'],
+      default: 'Home',
+    },
+    addressLine: {
+      type: String,
+      required: [true, 'Please provide address line'],
+    },
+    area: {
+      type: String,
+      required: [true, 'Please provide locality / area'],
+    },
+    city: {
+      type: String,
+      required: [true, 'Please provide city'],
+    },
+    pincode: {
+      type: String,
+      required: [true, 'Please provide 6-digit postal code'],
+    },
   },
-  phone: {
-    type: String,
-    required: [true, 'Please provide delivery phone number'],
-  },
-  tag: {
-    type: String,
-    enum: ['Home', 'Work', 'Other'],
-    default: 'Home',
-  },
-  addressLine: {
-    type: String,
-    required: [true, 'Please provide address line'],
-  },
-  area: {
-    type: String,
-    required: [true, 'Please provide locality / area'],
-  },
-  city: {
-    type: String,
-    required: [true, 'Please provide city'],
-  },
-  pincode: {
-    type: String,
-    required: [true, 'Please provide 6-digit postal code'],
-  },
-});
+  { _id: false }
+);
 
-const pricingSchema = new mongoose.Schema({
-  itemTotal: {
-    type: Number,
-    required: true,
+const pricingSchema = new mongoose.Schema(
+  {
+    itemTotal: {
+      type: Number,
+      required: true,
+    },
+    packagingCharges: {
+      type: Number,
+      default: 25,
+    },
+    deliveryFee: {
+      type: Number,
+      default: 40,
+    },
+    taxes: {
+      type: Number,
+      default: 0,
+    },
+    discount: {
+      type: Number,
+      default: 0,
+    },
+    grandTotal: {
+      type: Number,
+      required: true,
+    },
   },
-  packagingCharges: {
-    type: Number,
-    default: 25,
-  },
-  deliveryFee: {
-    type: Number,
-    default: 40,
-  },
-  taxes: {
-    type: Number,
-    default: 0,
-  },
-  discount: {
-    type: Number,
-    default: 0,
-  },
-  grandTotal: {
-    type: Number,
-    required: true,
-  },
-});
+  { _id: false }
+);
 
 const orderSchema = new mongoose.Schema(
   {
@@ -100,8 +109,7 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
     user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      type: mongoose.Schema.Types.Mixed,
       required: true,
       index: true,
     },

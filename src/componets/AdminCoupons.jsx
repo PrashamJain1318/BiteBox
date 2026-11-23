@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { apiFetch } from '../api/apiConfig'
 import '../style.css'
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api'
 
 export default function AdminCoupons() {
   const { user } = useAuth()
@@ -33,14 +32,14 @@ export default function AdminCoupons() {
   const fetchCoupons = async () => {
     try {
       setLoading(true)
-      const res = await fetch(`${API_BASE_URL}/v1/coupons`, { credentials: 'include' })
+      const res = await apiFetch('/coupons')
       const data = await res.json()
       if (data.success && data.coupons) {
         setCoupons(data.coupons)
       } else {
         setErrorMsg(data.message || 'Failed to fetch coupons.')
       }
-    } catch (err) {
+    } catch {
       setErrorMsg('Network error while fetching coupons.')
     } finally {
       setLoading(false)
@@ -108,17 +107,13 @@ export default function AdminCoupons() {
     try {
       let res
       if (editingId) {
-        res = await fetch(`${API_BASE_URL}/v1/coupons/${editingId}`, {
+        res = await apiFetch(`/coupons/${editingId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
           body: JSON.stringify(payload),
         })
       } else {
-        res = await fetch(`${API_BASE_URL}/v1/coupons`, {
+        res = await apiFetch('/coupons', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
           body: JSON.stringify(payload),
         })
       }
@@ -131,7 +126,7 @@ export default function AdminCoupons() {
       } else {
         setErrorMsg(data.message || 'Operation failed.')
       }
-    } catch (err) {
+    } catch {
       setErrorMsg('Failed to save coupon. Check connection.')
     }
   }
@@ -139,9 +134,8 @@ export default function AdminCoupons() {
   // Toggle active/inactive
   async function handleToggle(id) {
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/coupons/${id}/toggle`, {
+      const res = await apiFetch(`/coupons/${id}/toggle`, {
         method: 'PATCH',
-        credentials: 'include',
       })
       const data = await res.json()
       if (data.success) {
@@ -159,9 +153,8 @@ export default function AdminCoupons() {
   async function handleDelete(id, code) {
     if (!window.confirm(`Are you sure you want to delete coupon '${code}'?`)) return
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/coupons/${id}`, {
+      const res = await apiFetch(`/coupons/${id}`, {
         method: 'DELETE',
-        credentials: 'include',
       })
       const data = await res.json()
       if (data.success) {
