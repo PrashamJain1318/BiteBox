@@ -1,59 +1,125 @@
 import { useState } from 'react'
-import Card from "./Card";
-import BiteBox3D from "./BiteBox3D";
-import FilterBar from "./FilterBar";
-import { products } from '../data/product'
+import { restaurants } from '../data/restaurants'
+import FoodCategories from './FoodCategories'
+import RestaurantCarousel from './RestaurantCarousel'
+import RestaurantListing from './RestaurantListing'
+import BiteBox3D from './BiteBox3D'
 
 export default function Home() {
-    const [filter, setFilter] = useState('all')
+  const [selectedCategory, setSelectedCategory] = useState(null)
+  const [show3DBox, setShow3DBox] = useState(false)
 
-    const filteredProducts = products.filter((i) => {
-        if (filter === 'veg') return i.isVeg
-        if (filter === 'non-veg') return !i.isVeg
-        return true
-    })
+  const handleSelectCategory = (categoryId) => {
+    setSelectedCategory((prev) => (prev === categoryId ? null : categoryId))
+    // Smooth scroll down to the restaurant listing section
+    const listingEl = document.getElementById('restaurants')
+    if (listingEl) {
+      listingEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
 
-    return (
-        <div className="home-container">
-            <header className="hero-section">
-                <div className="hero-content">
-                    <span className="hero-pill">⚡ Fast & Fresh Delivery</span>
-                    <h1>Welcome to <span className="highlight">BiteBox</span> 📦</h1>
-                    <p>Craving something delicious? Fresh pizzas, juicy burgers & toasted sandwiches delivered hot to your doorstep!</p>
-                    <div className="hero-actions">
-                        <a href="#menu" className="hero-btn-primary">Explore Menu 🍕</a>
-                        <span className="hero-badge">⭐ 4.9 Rating • 20-30 min delivery</span>
-                    </div>
-                </div>
+  return (
+    <main className="swiggy-home-container">
+      {/* 1. FOOD CATEGORIES SECTION ("Prasham, what's on your mind?") */}
+      <FoodCategories
+        selectedCategory={selectedCategory}
+        onSelectCategory={handleSelectCategory}
+      />
 
-                <div className="hero-3d">
-                    <BiteBox3D />
-                </div>
-            </header>
+      <div className="swiggy-divider" />
 
-            <FilterBar filter={filter} setFilter={setFilter} />
+      {/* 2. TOP RESTAURANT CHAINS CAROUSEL */}
+      <RestaurantCarousel restaurants={restaurants} />
 
-            <div id="menu" className="products-grid">
-                {
-                    filteredProducts.map((prod) => {
-                        return (
-                            <Card
-                                key={prod.id}
-                                detail={prod}
-                            />
-                        )
-                    })
-                }
+      <div className="swiggy-divider" />
+
+      {/* 3. RESTAURANTS WITH ONLINE FOOD DELIVERY (Grid, Filters, Sorting) */}
+      <RestaurantListing
+        restaurants={restaurants}
+        activeCategory={selectedCategory}
+        onClearCategory={() => setSelectedCategory(null)}
+      />
+
+      {/* 4. OPTIONAL 3D INTERACTIVE BITEBOX FEATURE BANNER */}
+      <section className="bitebox-interactive-banner">
+        <div className="interactive-banner__inner">
+          <div className="interactive-banner__text">
+            <span className="banner-tag">INTERACTIVE EXPERIENCE</span>
+            <h3>Experience BiteBox in 3D</h3>
+            <p>Inspect our signature delivery pack crafted for fresh food delivery.</p>
+            <button
+              type="button"
+              className="toggle-3d-btn"
+              onClick={() => setShow3DBox(!show3DBox)}
+            >
+              {show3DBox ? 'Close 3D View ✕' : 'Open 3D BiteBox 📦'}
+            </button>
+          </div>
+          {show3DBox && (
+            <div className="interactive-banner__3d-wrap">
+              <BiteBox3D />
             </div>
-
-            {filteredProducts.length === 0 && (
-                <div className="no-products-msg">
-                    <p>No items found for this filter.</p>
-                    <button type="button" className="filter-btn active" onClick={() => setFilter('all')}>
-                        Show All Items
-                    </button>
-                </div>
-            )}
+          )}
         </div>
-    )
+      </section>
+
+      {/* 5. APP DOWNLOAD & FOOTER BANNER */}
+      <footer className="swiggy-footer">
+        <div className="swiggy-footer__app-banner">
+          <div className="app-banner__content">
+            <h2>For better experience, download the BiteBox app now</h2>
+            <p>Get exclusive app-only discounts, live GPS delivery tracking, and ultra-fast checkout.</p>
+          </div>
+          <div className="app-banner__badges">
+            <div className="app-badge">
+              <span className="badge-icon">🍏</span>
+              <div>
+                <small>Download on the</small>
+                <strong>App Store</strong>
+              </div>
+            </div>
+            <div className="app-badge">
+              <span className="badge-icon">▶</span>
+              <div>
+                <small>GET IT ON</small>
+                <strong>Google Play</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="swiggy-footer__links">
+          <div className="footer-col brand-col">
+            <div className="footer-logo">
+              <span className="bitebox-logo__badge">📦</span>
+              <span className="bitebox-logo__text">Bite<span className="bitebox-logo__accent">Box</span></span>
+            </div>
+            <p>© 2026 BiteBox Technologies Pvt. Ltd.</p>
+            <p className="footer-tagline">Good Food. Fast Delivery. Every Single Time.</p>
+          </div>
+          <div className="footer-col">
+            <h4>Company</h4>
+            <a href="#restaurants">About Us</a>
+            <a href="#restaurants">BiteBox Corporate</a>
+            <a href="#restaurants">Careers</a>
+            <a href="#restaurants">Team</a>
+          </div>
+          <div className="footer-col">
+            <h4>Contact Us</h4>
+            <a href="#restaurants">Help & Support</a>
+            <a href="#restaurants">Partner with us</a>
+            <a href="#restaurants">Ride with us</a>
+          </div>
+          <div className="footer-col">
+            <h4>Available In</h4>
+            <span>Bengaluru</span>
+            <span>Mumbai</span>
+            <span>Delhi NCR</span>
+            <span>Hyderabad</span>
+            <span>Pune</span>
+          </div>
+        </div>
+      </footer>
+    </main>
+  )
 }
