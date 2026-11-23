@@ -184,42 +184,27 @@ export default function OffersCarousel() {
               }}
               aria-label={`View deal: ${banner.title}`}
             >
-              <div className="offers-slide-image-wrap">
-                <img
-                  src={banner.image}
-                  alt={banner.alt}
-                  className="offers-slide-image"
-                  loading={index === 0 ? 'eager' : 'lazy'}
-                />
-                <div className="offers-slide-gradient-overlay" />
-              </div>
+              <img
+                src={banner.image}
+                alt={banner.alt}
+                className="offers-slide-image"
+                loading={index === 0 ? 'eager' : 'lazy'}
+              />
 
-              {/* Floating Bottom Card with Coupon & CTA */}
-              <div className="offers-slide-overlay-content">
-                <div className="offers-slide-tag" style={{ backgroundColor: banner.tagColor }}>
-                  {banner.badge}
-                </div>
-                <div className="offers-slide-text">
-                  <h3 className="offers-slide-title">{banner.title}</h3>
-                  <p className="offers-slide-sub">{banner.subtitle}</p>
-                </div>
-                <div className="offers-slide-action-row">
-                  <button
-                    type="button"
-                    className={`offers-coupon-pill ${copiedCode === banner.coupon ? 'copied' : ''}`}
-                    onClick={(e) => handleCopyCoupon(e, banner.coupon)}
-                    title="Click to copy coupon code"
-                  >
-                    <span className="coupon-scissor">✂️</span>
-                    <span className="coupon-code-text">{banner.coupon}</span>
-                    <span className="coupon-action-label">
-                      {copiedCode === banner.coupon ? '✓ COPIED' : 'TAP TO COPY'}
-                    </span>
-                  </button>
-                  <span className="offers-explore-cta">
-                    Order Now <span>→</span>
+              {/* Floating Copy Coupon Badge on bottom right */}
+              <div className="offers-slide-floating-badge">
+                <button
+                  type="button"
+                  className={`offers-coupon-pill ${copiedCode === banner.coupon ? 'copied' : ''}`}
+                  onClick={(e) => handleCopyCoupon(e, banner.coupon)}
+                  title="Click to copy coupon code"
+                >
+                  <span className="coupon-scissor">✂️</span>
+                  <span className="coupon-code-text">{banner.coupon}</span>
+                  <span className="coupon-action-label">
+                    {copiedCode === banner.coupon ? '✓ COPIED' : 'TAP TO COPY'}
                   </span>
-                </div>
+                </button>
               </div>
             </div>
           ))}
