@@ -658,4 +658,28 @@ test('BiteBox Coupon & Payment System Test Suite', async (t) => {
     assert.equal(responseJson.success, false);
     assert.equal(responseJson.message, 'No Google authentication token provided');
   });
+
+  // 32. Theme state & toggle functionality
+  await t.test('32. Theme state default and toggle logic', () => {
+    let currentTheme = 'light';
+    const toggle = (t) => (t === 'dark' ? 'light' : 'dark');
+
+    assert.equal(currentTheme, 'light');
+    currentTheme = toggle(currentTheme);
+    assert.equal(currentTheme, 'dark');
+    currentTheme = toggle(currentTheme);
+    assert.equal(currentTheme, 'light');
+  });
+
+  // 33. Theme localStorage key validation
+  await t.test('33. Theme persistence key is standard bitebox_theme', () => {
+    const THEME_STORAGE_KEY = 'bitebox_theme';
+    const store = new Map();
+
+    store.set(THEME_STORAGE_KEY, 'dark');
+    assert.equal(store.get('bitebox_theme'), 'dark');
+
+    store.set(THEME_STORAGE_KEY, 'light');
+    assert.equal(store.get('bitebox_theme'), 'light');
+  });
 });

@@ -17,6 +17,7 @@ import AdminCoupons from './componets/AdminCoupons'
 import ProtectedRoute from './componets/ProtectedRoute'
 import { CartContext } from './context/cartContext'
 import { AuthProvider } from './context/AuthContext'
+import { ThemeProvider } from './context/ThemeContext'
 import './style.css'
 
 function App() {
@@ -58,12 +59,13 @@ function App() {
   }, [totalCartItems])
 
   return (
-    <AuthProvider>
-      <CartContext.Provider value={{ cart, setCart, isSqueezing }}>
-        <BrowserRouter>
-          <Header />
+    <ThemeProvider>
+      <AuthProvider>
+        <CartContext.Provider value={{ cart, setCart, isSqueezing }}>
+          <BrowserRouter>
+            <Header />
 
-          <Routes>
+            <Routes>
             {/* Public Restaurant & Browsing Routes */}
             <Route path="/" element={<Home />} />
             <Route path="/restaurant/:restaurantId" element={<RestaurantDetails />} />
@@ -158,7 +160,8 @@ function App() {
         </BrowserRouter>
       </CartContext.Provider>
     </AuthProvider>
-  )
+  </ThemeProvider>
+)
 }
 
 export default App
