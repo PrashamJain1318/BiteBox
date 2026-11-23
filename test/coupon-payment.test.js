@@ -537,4 +537,125 @@ test('BiteBox Coupon & Payment System Test Suite', async (t) => {
     assert.equal(responseJson.success, true);
     assert.ok(Array.isArray(responseJson.orders));
   });
+
+  // 29. Controller: googleAuth handles Google OAuth sign-in and returns JWT session
+  await t.test('29. googleAuth controller handles Google sign-in and generates valid JWT session', async () => {
+    const { googleAuth } = await import('../server/src/controllers/authController.js');
+
+    let responseStatus = null;
+    let responseJson = null;
+
+    const mockRes = {
+      cookie() {
+        return this;
+      },
+      status(code) {
+        responseStatus = code;
+        return this;
+      },
+      json(data) {
+        responseJson = data;
+        return this;
+      },
+    };
+
+    const mockReq = {
+      body: {
+        idToken: 'mock_google_id_token_' + Date.now(),
+        email: 'prashamjain.google@gmail.com',
+        name: 'Prasham Jain',
+      },
+    };
+
+    await googleAuth(mockReq, mockRes, (err) => {
+      if (err) throw err;
+    });
+
+    assert.equal(responseStatus, 200);
+    assert.equal(responseJson.success, true);
+    assert.ok(responseJson.token);
+    assert.equal(responseJson.user.email, 'prashamjain.google@gmail.com');
+    assert.equal(responseJson.user.provider, 'google');
+  });
+
+  // 30. Controller: googleAuth decodes base64 JWT payload safely
+  await t.test('30. googleAuth controller decodes 3-part base64 Google JWT token', async () => {
+    const { googleAuth } = await import('../server/src/controllers/authController.js');
+
+    const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64');
+    const payload = Buffer.from(
+      JSON.stringify({
+        email: 'googleuser.verified@example.com',
+        name: 'Verified User',
+        sub: 'google_sub_123456789',
+        picture: 'https://example.com/avatar.jpg',
+      })
+    ).toString('base64');
+    const signature = Buffer.from('mock_signature').toString('base64');
+    const fakeJwt = `test_jwt_${header}.${payload}.${signature}`;
+
+    let responseStatus = null;
+    let responseJson = null;
+
+    const mockRes = {
+      cookie() {
+        return this;
+      },
+      status(code) {
+        responseStatus = code;
+        return this;
+      },
+      json(data) {
+        responseJson = data;
+        return this;
+      },
+    };
+
+    const mockReq = {
+      body: {
+        idToken: fakeJwt,
+      },
+    };
+
+    await googleAuth(mockReq, mockRes, (err) => {
+      if (err) throw err;
+    });
+
+    assert.equal(responseStatus, 200);
+    assert.equal(responseJson.success, true);
+    assert.ok(responseJson.token);
+    assert.equal(responseJson.user.email, 'googleuser.verified@example.com');
+    assert.equal(responseJson.user.provider, 'google');
+  });
+
+  // 31. Controller: googleAuth returns 400 when neither token nor email is provided
+  await t.test('31. googleAuth controller returns 400 when neither token nor email is provided', async () => {
+    const { googleAuth } = await import('../server/src/controllers/authController.js');
+
+    let responseStatus = null;
+    let responseJson = null;
+
+    const mockRes = {
+      status(code) {
+        responseStatus = code;
+        return this;
+      },
+      json(data) {
+        responseJson = data;
+        return this;
+      },
+    };
+
+    const mockReq = {
+      body: {},
+    };
+
+    await googleAuth(mockReq, mockRes, (err) => {
+      if (err) throw err;
+    });
+
+    assert.equal(responseStatus, 400);
+    assert.equal(responseJson.success, false);
+    assert.equal(responseJson.message, 'No Google authentication token provided');
+  });
 });

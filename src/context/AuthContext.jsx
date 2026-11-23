@@ -151,7 +151,7 @@ export function AuthProvider({ children }) {
     try {
       const bodyPayload = typeof idTokenOrPayload === 'string'
         ? { idToken: idTokenOrPayload }
-        : idTokenOrPayload;
+        : (idTokenOrPayload || {});
 
       const res = await apiFetch('/auth/google', {
         method: 'POST',
@@ -171,13 +171,14 @@ export function AuthProvider({ children }) {
         setAuthToken(data.token);
       }
       sessionStorage.setItem('bitebox_active_user', JSON.stringify(data.user));
-      return { success: true, user: data.user };
-    } catch {
+      return { success: true, user: data.user, message: data.message };
+    } catch (err) {
+      console.warn('Network error during Google login, using client session fallback:', err);
       // Demo Google User fallback
       const googleUser = {
         id: 'usr_google_' + Date.now(),
-        name: 'Prasham Jain (Google)',
-        email: 'prashamjain.google@gmail.com',
+        name: (typeof idTokenOrPayload === 'object' && idTokenOrPayload?.name) || 'Prasham Jain',
+        email: (typeof idTokenOrPayload === 'object' && idTokenOrPayload?.email) || 'prashamjain.google@gmail.com',
         profileImage: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80',
         provider: 'google',
         role: 'user',
