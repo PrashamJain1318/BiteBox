@@ -218,11 +218,12 @@ export default function Footer({ onSelectCity }) {
               𝕏
             </a>
             <a
-              href="https://instagram.com"
+              href="https://www.instagram.com/gokhru__prasham/"
               target="_blank"
               rel="noopener noreferrer"
               className="footer-social-pill"
-              title="Follow us on Instagram"
+              title="Follow Prasham on Instagram (@gokhru__prasham)"
+              aria-label="Instagram profile @gokhru__prasham"
             >
               📸
             </a>
