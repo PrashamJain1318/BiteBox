@@ -1,6 +1,7 @@
 import { useState, useContext, useEffect } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { CartContext } from '../context/cartContext'
+import { useAuth } from '../context/AuthContext'
 import { restaurants } from '../data/restaurants'
 import { products } from '../data/product'
 
@@ -23,6 +24,7 @@ const OFFERS = [
 
 export default function Header() {
   const { cart } = useContext(CartContext)
+  const { user, isAuthenticated, logout } = useAuth()
   const navigate = useNavigate()
 
   const [location, setLocation] = useState({ area: 'Koramangala', city: 'Bengaluru, Karnataka' })
@@ -81,6 +83,23 @@ export default function Header() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
+
+  const handleLogout = async () => {
+    await logout()
+    setIsProfileOpen(false)
+    navigate('/')
+  }
+
+  const userInitials = user?.name
+    ? user.name
+        .split(' ')
+        .map((n) => n[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase()
+    : 'U'
+
+  const userFirstName = user?.name ? user.name.split(' ')[0] : 'Account'
 
   return (
     <>
@@ -152,14 +171,34 @@ export default function Header() {
               <span>Help</span>
             </button>
 
-            <button
-              type="button"
-              className="nav-action-item"
-              onClick={() => setIsProfileOpen(true)}
-            >
-              <span className="user-avatar-mini">PJ</span>
-              <span>Prasham</span>
-            </button>
+            {/* Authentication States */}
+            {isAuthenticated && user ? (
+              <button
+                type="button"
+                className="nav-action-item auth-logged-in-btn"
+                onClick={() => setIsProfileOpen(true)}
+              >
+                {user.profileImage ? (
+                  <img
+                    src={user.profileImage}
+                    alt={user.name}
+                    className="user-avatar-mini img-avatar"
+                  />
+                ) : (
+                  <span className="user-avatar-mini">{userInitials}</span>
+                )}
+                <span>{userFirstName}</span>
+              </button>
+            ) : (
+              <div className="header-auth-buttons">
+                <Link to="/login" className="nav-signin-link">
+                  Sign In
+                </Link>
+                <Link to="/signup" className="nav-signup-pill">
+                  Sign Up
+                </Link>
+              </div>
+            )}
 
             <NavLink
               to="/cart"
@@ -208,9 +247,25 @@ export default function Header() {
             <button type="button" onClick={() => { setIsHelpOpen(true); setMobileMenuOpen(false) }}>
               ❓ Help & FAQs
             </button>
-            <button type="button" onClick={() => { setIsProfileOpen(true); setMobileMenuOpen(false) }}>
-              👤 Prasham (Account)
-            </button>
+            {isAuthenticated && user ? (
+              <>
+                <Link to="/profile" onClick={() => setMobileMenuOpen(false)}>
+                  👤 Profile ({user.name})
+                </Link>
+                <button type="button" onClick={() => { handleLogout(); setMobileMenuOpen(false) }}>
+                  🚪 Sign Out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link to="/login" onClick={() => setMobileMenuOpen(false)}>
+                  🔑 Sign In
+                </Link>
+                <Link to="/signup" onClick={() => setMobileMenuOpen(false)}>
+                  ✨ Create Account
+                </Link>
+              </>
+            )}
             <Link to="/cart" onClick={() => setMobileMenuOpen(false)}>
               🛒 Cart ({totalCartItems} items)
             </Link>
@@ -437,8 +492,8 @@ export default function Header() {
         </div>
       )}
 
-      {/* PROFILE MODAL */}
-      {isProfileOpen && (
+      {/* PROFILE MODAL (When Logged In) */}
+      {isProfileOpen && user && (
         <div className="swiggy-modal-backdrop" onClick={() => setIsProfileOpen(false)}>
           <div className="swiggy-modal profile-modal" onClick={(e) => e.stopPropagation()}>
             <div className="swiggy-modal__header">
@@ -446,14 +501,26 @@ export default function Header() {
               <button type="button" className="swiggy-modal__close" onClick={() => setIsProfileOpen(false)}>✕</button>
             </div>
             <div className="profile-card">
-              <div className="profile-avatar-large">PJ</div>
+              {user.profileImage ? (
+                <img src={user.profileImage} alt={user.name} className="profile-avatar-large" />
+              ) : (
+                <div className="profile-avatar-large">{userInitials}</div>
+              )}
               <div>
-                <h4>Prasham Jain</h4>
-                <p>prashamjaint@gmail.com • +91 98765 43210</p>
-                <span className="profile-status-pill">⭐ BiteBox VIP Member</span>
+                <h4>{user.name}</h4>
+                <p>{user.email}</p>
+                <span className="profile-status-pill">⭐ Verified BiteBox Foodie</span>
               </div>
             </div>
             <div className="profile-menu">
+              <Link
+                to="/profile"
+                className="profile-modal-action-link"
+                onClick={() => setIsProfileOpen(false)}
+              >
+                <span>👤 View & Edit Full Profile</span>
+                <strong>→</strong>
+              </Link>
               <div className="profile-menu-item">
                 <span>📍 Default Address</span>
                 <strong>{location.area}, Bengaluru</strong>
@@ -462,10 +529,13 @@ export default function Header() {
                 <span>🎁 Active Rewards</span>
                 <strong>4 Discount Coupons Available</strong>
               </div>
-              <div className="profile-menu-item">
-                <span>📦 Recent Orders</span>
-                <strong>2 Completed This Week</strong>
-              </div>
+              <button
+                type="button"
+                className="profile-modal-logout-btn"
+                onClick={handleLogout}
+              >
+                Sign Out 🚪
+              </button>
             </div>
           </div>
         </div>

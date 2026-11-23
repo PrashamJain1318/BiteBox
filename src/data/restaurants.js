@@ -343,16 +343,28 @@ export const restaurantInfo = [
   }
 ]
 
-const categories = ['burger', 'pizza', 'sandwich', 'beverages']
+const categories = [
+  'burger', 'pizza', 'sandwich', 'beverages',
+  'biryani', 'south-indian', 'north-indian', 'chinese',
+  'pasta', 'rolls', 'cakes', 'desserts'
+]
 
-// Dynamically generate 12-16 items per restaurant across categories with distinct IDs
+// Dynamically generate diverse items per restaurant across categories with distinct IDs
 export const restaurants = restaurantInfo.map((restaurant, restaurantIndex) => {
-  const menu = categories.flatMap((category, categoryIndex) => {
+  // Each restaurant gets 4-5 categories based on restaurantIndex
+  const assignedCategories = [
+    categories[(restaurantIndex * 2) % categories.length],
+    categories[(restaurantIndex * 2 + 1) % categories.length],
+    categories[(restaurantIndex * 2 + 2) % categories.length],
+    categories[(restaurantIndex * 2 + 3) % categories.length],
+  ]
+
+  const menu = assignedCategories.flatMap((category, categoryIndex) => {
     const categoryProducts = products.filter((product) => product.category === category)
     if (!categoryProducts.length) return []
 
     // Select 3-4 distinct products per category for this restaurant
-    const countToPick = 3
+    const countToPick = Math.min(4, categoryProducts.length)
     const selected = []
     for (let i = 0; i < countToPick; i++) {
       const idx = (restaurantIndex * 3 + categoryIndex * 4 + i) % categoryProducts.length
