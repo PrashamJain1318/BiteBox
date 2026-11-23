@@ -13,8 +13,8 @@ const isDbConnected = () => mongoose.connection.readyState === 1;
 
 // Razorpay SDK initialization
 const getRazorpayInstance = () => {
-  const key_id = process.env.RAZORPAY_KEY_ID || 'rzp_test_BiteBoxDemoKey123';
-  const key_secret = process.env.RAZORPAY_KEY_SECRET || 'bitebox_razorpay_secret_test_98765';
+  const key_id = process.env.RAZORPAY_KEY_ID;
+  const key_secret = process.env.RAZORPAY_KEY_SECRET;
 
   return new Razorpay({
     key_id,
@@ -239,7 +239,7 @@ export const createOrder = async (req, res) => {
         id: razorpayOrder.id,
         amount: razorpayOrder.amount,
         currency: razorpayOrder.currency,
-        keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_BiteBoxDemoKey123',
+        keyId: process.env.RAZORPAY_KEY_ID,
       },
     });
   } catch (error) {

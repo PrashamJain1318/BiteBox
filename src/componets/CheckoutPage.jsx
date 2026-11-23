@@ -249,11 +249,11 @@ export default function CheckoutPage() {
         id: `order_test_${Date.now()}`,
         amount: Math.round(grandTotal * 100),
         currency: 'INR',
-        keyId: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_BiteBoxDemoKey123',
+        keyId: import.meta.env.VITE_RAZORPAY_KEY_ID,
       }
 
       const options = {
-        key: razorpayOrder.keyId || import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_BiteBoxDemoKey123',
+        key: razorpayOrder.keyId || import.meta.env.VITE_RAZORPAY_KEY_ID,
         amount: razorpayOrder.amount,
         currency: razorpayOrder.currency || 'INR',
         name: 'BiteBox Food Ordering',

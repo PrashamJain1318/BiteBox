@@ -69,6 +69,11 @@ app.use('/api/orders', orderRoutes); // Alias for compatibility
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/payments', paymentRoutes); // Alias for compatibility
 
+// Direct Standard Razorpay Endpoints (POST /api/create-order & POST /api/verify-payment)
+import { createStandardOrder, verifyStandardPayment } from './controllers/paymentController.js';
+app.post('/api/create-order', createStandardOrder);
+app.post('/api/verify-payment', verifyStandardPayment);
+
 // Error handlers
 app.use(notFound);
 app.use(errorHandler);

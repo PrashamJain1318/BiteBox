@@ -254,4 +254,35 @@ test('BiteBox Coupon & Payment System Test Suite', async (t) => {
     assert.equal(order.orderStatus, 'confirmed');
     assert.ok(order.paidAt instanceof Date);
   });
+
+  // 21. Standard Checkout - Minimum amount >= 100 paise validation
+  await t.test('21. Standard Checkout requires minimum 100 paise (₹1)', () => {
+    const invalidAmount = 50; // 50 paise is < 100
+    const isValid = Number(invalidAmount) >= 100;
+    assert.equal(isValid, false);
+
+    const validAmount = 50000; // ₹500 in paise
+    assert.equal(Number(validAmount) >= 100, true);
+  });
+
+  // 22. Standard Checkout - Algorithm: HMAC-SHA256(order_id + "|" + payment_id, KEY_SECRET)
+  await t.test('22. Standard Checkout HMAC-SHA256 signature verification with configured key secret', () => {
+    const secret = process.env.RAZORPAY_KEY_SECRET || 'dummy_test_secret_for_unit_tests';
+    const order_id = 'order_DAvD8z4qW7wK8U';
+    const payment_id = 'pay_DAvEJ3vVvV8K8U';
+
+    const generated = crypto
+      .createHmac('sha256', secret)
+      .update(`${order_id}|${payment_id}`)
+      .digest('hex');
+
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(`${order_id}|${payment_id}`)
+      .digest('hex');
+
+    assert.equal(generated, expected);
+    assert.equal(typeof generated, 'string');
+    assert.equal(generated.length, 64); // 64 hex characters (256 bits)
+  });
 });

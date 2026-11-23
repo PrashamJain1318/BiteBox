@@ -7,6 +7,142 @@ import { Coupon } from '../models/Coupon.js';
 const isDbConnected = () => mongoose.connection.readyState === 1;
 
 /**
+ * @desc    Create Razorpay order for Standard Web Checkout
+ * @route   POST /api/create-order
+ * @access  Public / Optional Auth
+ */
+export const createStandardOrder = async (req, res) => {
+  try {
+    const { amount, currency = 'INR', receipt, notes } = req.body;
+
+    // Minimum amount validation: 100 paise
+    if (!amount || isNaN(amount) || Number(amount) < 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid amount. Minimum amount is 100 paise (₹1).',
+      });
+    }
+
+    const key_id = process.env.RAZORPAY_KEY_ID;
+    const key_secret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!key_id || !key_secret) {
+      return res.status(500).json({
+        success: false,
+        message: 'Razorpay API credentials are not configured on the server.',
+      });
+    }
+
+    const razorpay = new Razorpay({ key_id, key_secret });
+
+    const orderOptions = {
+      amount: Math.round(Number(amount)),
+      currency: currency || 'INR',
+      receipt: receipt || `rcpt_${Date.now()}`,
+      notes: notes || {},
+    };
+
+    const order = await razorpay.orders.create(orderOptions);
+
+    return res.status(200).json({
+      success: true,
+      order_id: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      key_id,
+    });
+  } catch (error) {
+    console.error('Razorpay Create Order Error:', error);
+    if (error.statusCode === 401) {
+      return res.status(401).json({
+        success: false,
+        message: 'Razorpay authentication failed: Invalid Key ID or Key Secret.',
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      message: error.error?.description || error.message || 'Failed to create Razorpay order.',
+    });
+  }
+};
+
+/**
+ * @desc    Verify Razorpay payment signature for Standard Web Checkout
+ * @route   POST /api/verify-payment
+ * @access  Public / Optional Auth
+ */
+export const verifyStandardPayment = async (req, res) => {
+  try {
+    const order_id = req.body.order_id || req.body.razorpay_order_id;
+    const payment_id = req.body.payment_id || req.body.razorpay_payment_id;
+    const signature = req.body.signature || req.body.razorpay_signature;
+    const orderId = req.body.orderId;
+
+    // Missing fields check: return 400
+    if (!order_id || !payment_id || !signature) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: order_id, payment_id, and signature are required.',
+      });
+    }
+
+    const key_secret = process.env.RAZORPAY_KEY_SECRET;
+
+    // Algorithm: HMAC-SHA256(order_id + "|" + payment_id, KEY_SECRET)
+    const expected_signature = crypto
+      .createHmac('sha256', key_secret)
+      .update(`${order_id}|${payment_id}`)
+      .digest('hex');
+
+    // Compare generated signature with razorpay_signature
+    if (expected_signature !== signature) {
+      // Signature mismatch: return 400, do NOT mark as paid
+      if (orderId && isDbConnected()) {
+        try {
+          await Order.findOneAndUpdate(
+            { $or: [{ orderId }, { razorpayOrderId: order_id }] },
+            { paymentStatus: 'failed', failureReason: 'Signature mismatch' }
+          );
+        } catch {}
+      }
+      return res.status(400).json({
+        success: false,
+        message: 'Payment verification failed: Signature mismatch',
+      });
+    }
+
+    // Return success only if signatures match
+    if (orderId && isDbConnected()) {
+      try {
+        await Order.findOneAndUpdate(
+          { $or: [{ orderId }, { razorpayOrderId: order_id }] },
+          {
+            paymentStatus: 'paid',
+            orderStatus: 'confirmed',
+            razorpayPaymentId: payment_id,
+            razorpaySignature: signature,
+            paidAt: new Date(),
+          }
+        );
+      } catch {}
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Payment verified successfully.',
+      order_id,
+      payment_id,
+    });
+  } catch (error) {
+    console.error('Razorpay Verify Signature Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error during signature verification.',
+    });
+  }
+};
+
+/**
  * @desc    Create / retrieve Razorpay payment order for a pending BiteBox order
  * @route   POST /api/v1/payments/create-order
  * @access  Private
@@ -43,8 +179,8 @@ export const createPaymentOrder = async (req, res) => {
       });
     }
 
-    const key_id = process.env.RAZORPAY_KEY_ID || 'rzp_test_BiteBoxDemoKey123';
-    const key_secret = process.env.RAZORPAY_KEY_SECRET || 'bitebox_razorpay_secret_test_98765';
+    const key_id = process.env.RAZORPAY_KEY_ID;
+    const key_secret = process.env.RAZORPAY_KEY_SECRET;
     const razorpay = new Razorpay({ key_id, key_secret });
 
     const amountInPaise = Math.round(order.pricing.grandTotal * 100);
@@ -142,7 +278,7 @@ export const verifyPayment = async (req, res) => {
     }
 
     // 3. Cryptographic Signature Verification
-    const secret = process.env.RAZORPAY_KEY_SECRET || 'bitebox_razorpay_secret_test_98765';
+    const secret = process.env.RAZORPAY_KEY_SECRET;
     const expectedSignature = crypto
       .createHmac('sha256', secret)
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
