@@ -682,4 +682,181 @@ test('BiteBox Coupon & Payment System Test Suite', async (t) => {
     store.set(THEME_STORAGE_KEY, 'light');
     assert.equal(store.get('bitebox_theme'), 'light');
   });
+
+  // 34. Delivery Partner assignment: dynamic assignment algorithm picks least active partner
+  await t.test('34. Delivery Partner assignment chooses available partner with lowest current orders', async () => {
+    const { assignDeliveryPartner, releaseDeliveryPartner } = await import(
+      '../server/src/utils/deliveryPartnerService.js'
+    );
+    const { INITIAL_DEMO_PARTNERS } = await import('../server/src/models/DeliveryPartner.js');
+
+    // Initial partner selection
+    const partner1 = await assignDeliveryPartner('test_order_1');
+    assert.ok(partner1);
+    assert.ok(partner1.name);
+    assert.ok(partner1.phone);
+    assert.ok(partner1.vehicleNumber);
+
+    // Verify all 6 demo partners exist in initial list
+    assert.ok(INITIAL_DEMO_PARTNERS.length >= 6);
+    const partnerNames = INITIAL_DEMO_PARTNERS.map((p) => p.name);
+    assert.ok(partnerNames.includes('Rakesh Kumar'));
+    assert.ok(partnerNames.includes('Rahul Sharma'));
+    assert.ok(partnerNames.includes('Amit Verma'));
+    assert.ok(partnerNames.includes('Karan Singh'));
+    assert.ok(partnerNames.includes('Vikram Patel'));
+    assert.ok(partnerNames.includes('Suresh Yadav'));
+
+    // Release partner
+    const released = await releaseDeliveryPartner(partner1._id || partner1.name, false);
+    assert.ok(released);
+  });
+
+  // 35. Demo Tracking lifecycle progression based on elapsed time
+  await t.test('35. Demo Tracking Engine evaluates lifecycle milestones based on elapsed seconds', async () => {
+    const { evaluateAndProgressOrder } = await import('../server/src/utils/demoTrackingEngine.js');
+    const { DEMO_TRACKING_CONFIG } = await import('../server/src/config/demoTrackingConfig.js');
+
+    const now = Date.now();
+
+    // Placed (< 10s)
+    const mockOrderPlaced = {
+      orderId: 'TEST-001',
+      orderStatus: 'placed',
+      paymentMethod: 'cod',
+      paymentStatus: 'unpaid',
+      placedAt: new Date(now - 2000), // 2 seconds ago
+      statusHistory: [{ status: 'placed', timestamp: new Date(now - 2000) }],
+    };
+    const resPlaced = await evaluateAndProgressOrder(mockOrderPlaced);
+    assert.equal(resPlaced.orderStatus, 'placed');
+
+    // Confirmed (>= 10s and < 25s)
+    const mockOrderConfirmed = {
+      orderId: 'TEST-002',
+      orderStatus: 'placed',
+      paymentMethod: 'cod',
+      paymentStatus: 'unpaid',
+      placedAt: new Date(now - 12000), // 12 seconds ago
+      statusHistory: [{ status: 'placed', timestamp: new Date(now - 12000) }],
+    };
+    const resConfirmed = await evaluateAndProgressOrder(mockOrderConfirmed);
+    assert.equal(resConfirmed.orderStatus, 'confirmed');
+
+    // Preparing (>= 25s and < 45s)
+    const mockOrderPreparing = {
+      orderId: 'TEST-003',
+      orderStatus: 'confirmed',
+      paymentMethod: 'cod',
+      paymentStatus: 'unpaid',
+      placedAt: new Date(now - 30000), // 30 seconds ago
+      statusHistory: [{ status: 'placed', timestamp: new Date(now - 30000) }],
+    };
+    const resPrep = await evaluateAndProgressOrder(mockOrderPreparing);
+    assert.equal(resPrep.orderStatus, 'preparing');
+
+    // Out for delivery (>= 45s and < 90s)
+    const mockOrderOut = {
+      orderId: 'TEST-004',
+      orderStatus: 'preparing',
+      paymentMethod: 'cod',
+      paymentStatus: 'unpaid',
+      placedAt: new Date(now - 55000), // 55 seconds ago
+      statusHistory: [{ status: 'placed', timestamp: new Date(now - 55000) }],
+    };
+    const resOut = await evaluateAndProgressOrder(mockOrderOut);
+    assert.equal(resOut.orderStatus, 'out_for_delivery');
+
+    // Delivered (>= 90s) & COD payment collection confirmation
+    const mockOrderDelivered = {
+      orderId: 'TEST-005',
+      orderStatus: 'out_for_delivery',
+      paymentMethod: 'cod',
+      paymentStatus: 'unpaid',
+      placedAt: new Date(now - 95000), // 95 seconds ago
+      statusHistory: [{ status: 'placed', timestamp: new Date(now - 95000) }],
+    };
+    const resDelivered = await evaluateAndProgressOrder(mockOrderDelivered);
+    assert.equal(resDelivered.orderStatus, 'delivered');
+    assert.equal(resDelivered.paymentStatus, 'paid'); // COD marked paid upon delivery
+
+    // Verify configured delay thresholds
+    assert.equal(DEMO_TRACKING_CONFIG.timings.confirmed, 10);
+    assert.equal(DEMO_TRACKING_CONFIG.timings.preparing, 25);
+    assert.equal(DEMO_TRACKING_CONFIG.timings.outForDelivery, 45);
+    assert.equal(DEMO_TRACKING_CONFIG.timings.delivered, 90);
+  });
+
+  // 36. Tracking metrics: GPS location interpolation and ETA calculation
+  await t.test('36. Tracking metrics correctly interpolates rider position along polyline', async () => {
+    const { calculateTrackingMetrics } = await import('../server/src/utils/demoTrackingEngine.js');
+    const { DEMO_TRACKING_CONFIG } = await import('../server/src/config/demoTrackingConfig.js');
+
+    const route = DEMO_TRACKING_CONFIG.locations.routePath;
+    const startPoint = route[0];
+    const endPoint = route[route.length - 1];
+
+    // Status: preparing -> position should be at restaurant
+    const prepOrder = {
+      orderStatus: 'preparing',
+      placedAt: new Date(),
+    };
+    const prepMetrics = calculateTrackingMetrics(prepOrder);
+    assert.equal(prepMetrics.partnerLocation.lat, startPoint[0]);
+    assert.equal(prepMetrics.partnerLocation.lng, startPoint[1]);
+    assert.equal(prepMetrics.progressPercentage, 60);
+
+    // Status: delivered -> position should be at customer destination
+    const delOrder = {
+      orderStatus: 'delivered',
+      placedAt: new Date(Date.now() - 100000),
+    };
+    const delMetrics = calculateTrackingMetrics(delOrder);
+    assert.equal(delMetrics.partnerLocation.lat, endPoint[0]);
+    assert.equal(delMetrics.partnerLocation.lng, endPoint[1]);
+    assert.equal(delMetrics.progressPercentage, 100);
+    assert.equal(delMetrics.etaMinutes, 0);
+  });
+
+  // 37. Reset demo simulation endpoint functionality
+  await t.test('37. Reset demo resets order status back to placed with fresh timestamp', async () => {
+    const { resetDemoTracking, fallbackOrders } = await import('../server/src/controllers/orderController.js');
+
+    // Ensure mock order exists in fallbackOrders store
+    fallbackOrders.push({
+      _id: 'test_order_reset',
+      orderId: 'test_order_reset',
+      orderStatus: 'delivered',
+      paymentMethod: 'cod',
+      paymentStatus: 'paid',
+      statusHistory: [],
+    });
+
+    let responseStatus = null;
+    let responseJson = null;
+
+    const mockRes = {
+      status(code) {
+        responseStatus = code;
+        return this;
+      },
+      json(data) {
+        responseJson = data;
+        return this;
+      },
+    };
+
+    const mockReq = {
+      params: { id: 'test_order_reset' },
+      user: { _id: 'customer_1', role: 'customer' },
+    };
+
+    await resetDemoTracking(mockReq, mockRes);
+
+    assert.equal(responseStatus, 200);
+    assert.equal(responseJson.success, true);
+    assert.equal(responseJson.order.orderStatus, 'placed');
+    assert.equal(responseJson.order.paymentStatus, 'unpaid');
+    assert.ok(responseJson.deliveryPartner);
+  });
 });

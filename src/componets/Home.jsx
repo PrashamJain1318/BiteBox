@@ -1,10 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { restaurants } from '../data/restaurants'
-import HeroSection from '../components/home/HeroSection'
 import OffersCarousel from './OffersCarousel'
 import FoodCategories from './FoodCategories'
 import RestaurantCarousel from './RestaurantCarousel'
-import RestaurantSection from '../components/home/RestaurantSection'
+import RestaurantListing from './RestaurantListing'
 import BiteBox3D from './BiteBox3D'
 import Footer from './Footer'
 
@@ -15,6 +14,7 @@ export default function Home() {
 
   const handleSelectCategory = (categoryId) => {
     setSelectedCategory((prev) => (prev === categoryId ? null : categoryId))
+    // Smooth scroll down to the restaurant listing section
     const listingEl = document.getElementById('restaurants')
     if (listingEl) {
       listingEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -29,23 +29,10 @@ export default function Home() {
     }
   }
 
-  const handleScrollToOffers = useCallback(() => {
-    const el = document.getElementById('offers-carousel')
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-  }, [])
-
   return (
     <main className="swiggy-home-container">
-      {/* 1. CINEMATIC 3D SCROLL & HERO EXPERIENCE */}
-      <HeroSection
-        onExplore={() => {
-          const el = document.getElementById('restaurants')
-          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }}
-        onViewOffers={handleScrollToOffers}
-      />
+      {/* 1. HERO OFFERS CAROUSEL (3-Second Auto-Scrolling Banner) */}
+      <OffersCarousel />
 
       <div className="swiggy-divider" />
 
@@ -57,20 +44,13 @@ export default function Home() {
 
       <div className="swiggy-divider" />
 
-      {/* 3. TOP RESTAURANT CHAINS CAROUSEL */}
+      {/* 2. TOP RESTAURANT CHAINS CAROUSEL */}
       <RestaurantCarousel restaurants={restaurants} />
 
       <div className="swiggy-divider" />
 
-      {/* 4. HERO OFFERS CAROUSEL (3-Second Auto-Scrolling Banner) */}
-      <div id="offers-carousel">
-        <OffersCarousel />
-      </div>
-
-      <div className="swiggy-divider" />
-
-      {/* 5. RESTAURANTS WITH ONLINE FOOD DELIVERY (Grid, 3D Cards, Staggered Entry) */}
-      <RestaurantSection
+      {/* 3. RESTAURANTS WITH ONLINE FOOD DELIVERY (Grid, Filters, Sorting) */}
+      <RestaurantListing
         restaurants={restaurants}
         activeCategory={selectedCategory}
         onClearCategory={() => setSelectedCategory(null)}
@@ -78,7 +58,7 @@ export default function Home() {
         onClearCity={() => setSelectedCity(null)}
       />
 
-      {/* 6. OPTIONAL 3D INTERACTIVE BITEBOX FEATURE BANNER */}
+      {/* 4. OPTIONAL 3D INTERACTIVE BITEBOX FEATURE BANNER */}
       <section className="bitebox-interactive-banner">
         <div className="interactive-banner__inner">
           <div className="interactive-banner__text">
@@ -101,9 +81,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 7. APP DOWNLOAD & FOOTER (Fully Interactive) */}
+      {/* 5. APP DOWNLOAD & FOOTER (Fully Interactive) */}
       <Footer onSelectCity={handleSelectCity} />
     </main>
   )
 }
-

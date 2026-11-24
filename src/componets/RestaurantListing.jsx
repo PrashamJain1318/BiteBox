@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import Interactive3DCard from '../components/3d/Interactive3DCard'
 
 export default function RestaurantListing({
   restaurants = [],
@@ -307,54 +306,48 @@ export default function RestaurantListing({
       {filteredAndSortedRestaurants.length > 0 ? (
         <div className="swiggy-restaurant-grid">
           {filteredAndSortedRestaurants.map((restaurant) => (
-            <Interactive3DCard
+            <Link
               key={restaurant.id}
-              maxTilt={7}
-              scale={1.02}
-              className="restaurant-3d-card-wrap"
+              to={`/restaurant/${restaurant.id}`}
+              className="swiggy-grid-card"
             >
-              <Link
-                to={`/restaurant/${restaurant.id}`}
-                className="swiggy-grid-card"
-              >
-                <div className="swiggy-grid-card__image-wrap">
-                  <img
-                    src={restaurant.image}
-                    alt={restaurant.name}
-                    loading="lazy"
-                    onError={(e) => {
-                      e.currentTarget.onerror = null
-                      e.currentTarget.src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80'
-                    }}
-                  />
-                  <div className="swiggy-grid-card__overlay">
-                    <span className="swiggy-grid-card__offer">{restaurant.offer || 'FLAT 20% OFF'}</span>
-                  </div>
+              <div className="swiggy-grid-card__image-wrap">
+                <img
+                  src={restaurant.image}
+                  alt={restaurant.name}
+                  loading="lazy"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null
+                    e.currentTarget.src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80'
+                  }}
+                />
+                <div className="swiggy-grid-card__overlay">
+                  <span className="swiggy-grid-card__offer">{restaurant.offer || 'FLAT 20% OFF'}</span>
+                </div>
+              </div>
+
+              <div className="swiggy-grid-card__content">
+                <h3 className="swiggy-grid-card__name" title={restaurant.name}>{restaurant.name}</h3>
+
+                <div className="swiggy-grid-card__rating-row">
+                  <span className="green-rating-badge">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                    </svg>
+                    {restaurant.rating.toFixed(1)}
+                  </span>
+                  <span className="swiggy-grid-card__dot">•</span>
+                  <span className="swiggy-grid-card__time">{restaurant.deliveryTime}</span>
                 </div>
 
-                <div className="swiggy-grid-card__content">
-                  <h3 className="swiggy-grid-card__name" title={restaurant.name}>{restaurant.name}</h3>
+                <p className="swiggy-grid-card__cuisine" title={restaurant.cuisine}>{restaurant.cuisine}</p>
 
-                  <div className="swiggy-grid-card__rating-row">
-                    <span className="green-rating-badge">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                      </svg>
-                      {restaurant.rating.toFixed(1)}
-                    </span>
-                    <span className="swiggy-grid-card__dot">•</span>
-                    <span className="swiggy-grid-card__time">{restaurant.deliveryTime}</span>
-                  </div>
-
-                  <p className="swiggy-grid-card__cuisine" title={restaurant.cuisine}>{restaurant.cuisine}</p>
-
-                  <div className="swiggy-grid-card__footer">
-                    <span className="swiggy-grid-card__location">{restaurant.location}</span>
-                    <span className="swiggy-grid-card__price">From ₹{restaurant.startingPrice}</span>
-                  </div>
+                <div className="swiggy-grid-card__footer">
+                  <span className="swiggy-grid-card__location">{restaurant.location}</span>
+                  <span className="swiggy-grid-card__price">From ₹{restaurant.startingPrice}</span>
                 </div>
-              </Link>
-            </Interactive3DCard>
+              </div>
+            </Link>
           ))}
         </div>
       ) : (

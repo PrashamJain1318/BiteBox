@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import { Order } from '../models/Order.js';
 import { Coupon } from '../models/Coupon.js';
+import { assignDeliveryPartner } from '../utils/deliveryPartnerService.js';
+import { scheduleDemoProgression } from '../utils/demoTrackingEngine.js';
 
 const isDbConnected = () => mongoose.connection.readyState === 1;
 
@@ -114,16 +116,27 @@ export const verifyStandardPayment = async (req, res) => {
     // Return success only if signatures match
     if (orderId && isDbConnected()) {
       try {
+        const assignedPartner = await assignDeliveryPartner(orderId);
         await Order.findOneAndUpdate(
           { $or: [{ orderId }, { razorpayOrderId: order_id }] },
           {
             paymentStatus: 'paid',
             orderStatus: 'confirmed',
+            deliveryPartner: assignedPartner ? assignedPartner._id : null,
+            deliveryPartnerAssignedAt: assignedPartner ? new Date() : null,
             razorpayPaymentId: payment_id,
             razorpaySignature: signature,
             paidAt: new Date(),
+            $push: {
+              statusHistory: {
+                status: 'confirmed',
+                timestamp: new Date(),
+                note: 'Online payment captured. Order confirmed with restaurant kitchen.',
+              },
+            },
           }
         );
+        scheduleDemoProgression(orderId, Date.now());
       } catch {}
     }
 

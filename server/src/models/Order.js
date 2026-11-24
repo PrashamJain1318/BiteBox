@@ -141,6 +141,34 @@ const orderSchema = new mongoose.Schema(
       default: 'placed',
       index: true,
     },
+    deliveryPartner: {
+      type: mongoose.Schema.Types.Mixed,
+      ref: 'DeliveryPartner',
+      default: null,
+      index: true,
+    },
+    deliveryPartnerAssignedAt: {
+      type: Date,
+    },
+    statusHistory: [
+      {
+        status: {
+          type: String,
+          enum: ['placed', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'],
+        },
+        timestamp: {
+          type: Date,
+          default: Date.now,
+        },
+        note: {
+          type: String,
+        },
+      },
+    ],
+    estimatedDeliveryMinutes: {
+      type: Number,
+      default: 30,
+    },
     razorpayOrderId: {
       type: String,
       index: true,
