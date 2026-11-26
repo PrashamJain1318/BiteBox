@@ -5,20 +5,20 @@ import { Order } from '../models/Order.js';
 import { Coupon } from '../models/Coupon.js';
 import { calculateOrderPricing } from '../utils/pricingCalculator.js';
 import {
+  createSimulationSchedule,
+  evaluateOrderTracking,
+} from '../utils/deliverySimulator.js';
+import {
   assignDeliveryPartner,
   releaseDeliveryPartner,
-  getPartnerDetails,
-} from '../utils/deliveryPartnerService.js';
-import {
-  evaluateAndProgressOrder,
-  calculateTrackingMetrics,
-  scheduleDemoProgression,
-  cancelDemoTimers,
-} from '../utils/demoTrackingEngine.js';
-import { DEMO_TRACKING_CONFIG } from '../config/demoTrackingConfig.js';
+  seedDeliveryPartners,
+} from '../models/DeliveryPartner.js';
+
+// Seed demo partners pool if DB connected
+seedDeliveryPartners().catch(() => {});
 
 // In-memory fallback orders store for resilient offline dev support
-export let fallbackOrders = [];
+let fallbackOrders = [];
 
 // Helper to check MongoDB connection state
 const isDbConnected = () => mongoose.connection.readyState === 1;
@@ -55,7 +55,7 @@ const generateOrderId = () => {
 /**
  * @desc    Create a new order & initiate Razorpay order if online payment
  * @route   POST /api/v1/orders
- * @access  Private / Optional Auth
+ * @access  Private
  */
 export const createOrder = async (req, res) => {
   try {
@@ -100,11 +100,13 @@ export const createOrder = async (req, res) => {
       if (isDbConnected()) {
         couponRecord = await Coupon.findOne({ code: cleanCode, isActive: true });
       } else {
+        // Look up in fallback coupons
         const { INITIAL_SAMPLE_COUPONS } = await import('../models/Coupon.js');
         couponRecord = INITIAL_SAMPLE_COUPONS.find((c) => c.code === cleanCode && c.isActive);
       }
 
       if (couponRecord) {
+        // Pre-validate coupon before applying
         const rawPricing = calculateOrderPricing(items, null).pricing;
         if (rawPricing.itemTotal >= (couponRecord.minOrderValue || 0)) {
           appliedCoupon = couponRecord;
@@ -136,12 +138,14 @@ export const createOrder = async (req, res) => {
       pincode: String(deliveryAddress.pincode || '').trim(),
     };
 
+    const placedAt = new Date();
+    const simSchedule = createSimulationSchedule(placedAt, {
+      restaurantName: sanitizedItems[0]?.restaurantName || 'BiteBox Partner Kitchen',
+      destinationAddress: `${sanitizedAddress.addressLine}, ${sanitizedAddress.area}`,
+    });
+
     // 3. For Cash on Delivery (COD)
     if (paymentMethod === 'cod') {
-      // Dynamically select available delivery partner
-      const assignedPartner = await assignDeliveryPartner(orderId);
-      const placedTimestamp = new Date();
-
       const orderPayload = {
         orderId,
         user: userId,
@@ -158,17 +162,8 @@ export const createOrder = async (req, res) => {
         paymentMethod: 'cod',
         paymentStatus: 'unpaid',
         orderStatus: 'placed',
-        deliveryPartner: assignedPartner ? assignedPartner._id : null,
-        deliveryPartnerAssignedAt: assignedPartner ? placedTimestamp : null,
-        statusHistory: [
-          {
-            status: 'placed',
-            timestamp: placedTimestamp,
-            note: 'Order placed successfully with Cash on Delivery.',
-          },
-        ],
-        estimatedDeliveryMinutes: 30,
-        placedAt: placedTimestamp,
+        placedAt,
+        ...simSchedule,
       };
 
       let savedOrder = null;
@@ -214,14 +209,10 @@ export const createOrder = async (req, res) => {
         fallbackOrders.unshift(savedOrder);
       }
 
-      // Schedule demo background progression timers
-      scheduleDemoProgression(orderId, placedTimestamp.getTime());
-
       return res.status(201).json({
         success: true,
         message: 'Order placed successfully with Cash on Delivery.',
         order: savedOrder,
-        deliveryPartner: assignedPartner,
       });
     }
 
@@ -278,17 +269,9 @@ export const createOrder = async (req, res) => {
       paymentMethod,
       paymentStatus: 'pending',
       orderStatus: 'placed',
-      deliveryPartner: null,
-      statusHistory: [
-        {
-          status: 'placed',
-          timestamp: new Date(),
-          note: 'Order created. Complete payment to confirm.',
-        },
-      ],
-      estimatedDeliveryMinutes: 30,
       razorpayOrderId: razorpayOrder.id,
-      placedAt: new Date(),
+      placedAt,
+      ...simSchedule,
     };
 
     let savedOrder = null;
@@ -344,7 +327,7 @@ export const createOrder = async (req, res) => {
 /**
  * @desc    Get logged-in user's order history
  * @route   GET /api/v1/orders/my-orders
- * @access  Private / Optional Auth
+ * @access  Private
  */
 export const getMyOrders = async (req, res) => {
   try {
@@ -365,13 +348,6 @@ export const getMyOrders = async (req, res) => {
       }
     }
 
-    // Evaluate demo progression for active orders
-    for (let i = 0; i < orders.length; i++) {
-      if (!['delivered', 'cancelled'].includes(orders[i].orderStatus)) {
-        orders[i] = await evaluateAndProgressOrder(orders[i]);
-      }
-    }
-
     return res.status(200).json({
       success: true,
       count: orders.length,
@@ -387,9 +363,9 @@ export const getMyOrders = async (req, res) => {
 };
 
 /**
- * @desc    Get single order details by ID with live progression & partner
+ * @desc    Get single order details by ID
  * @route   GET /api/v1/orders/:id
- * @access  Private / Optional Auth
+ * @access  Private
  */
 export const getOrderById = async (req, res) => {
   try {
@@ -420,26 +396,13 @@ export const getOrderById = async (req, res) => {
       });
     }
 
-    // Evaluate and progress demo order status based on elapsed time
-    order = await evaluateAndProgressOrder(order);
-
-    // Fetch assigned partner details
-    let partnerInfo = null;
-    if (order.deliveryPartner) {
-      partnerInfo = await getPartnerDetails(order.deliveryPartner);
-    }
-
-    // Calculate live simulated tracking metrics
-    const placedTime = new Date(order.placedAt || order.createdAt || Date.now()).getTime();
-    const elapsedSeconds = Math.max(0, (Date.now() - placedTime) / 1000);
-    const trackingMetrics = calculateTrackingMetrics(order, elapsedSeconds);
+    // Evaluate live simulation progression so order status and partner are always up to date
+    const tracking = await evaluateOrderTracking(order);
 
     return res.status(200).json({
       success: true,
       order,
-      deliveryPartner: partnerInfo,
-      tracking: trackingMetrics,
-      demoMode: DEMO_TRACKING_CONFIG.enabled,
+      tracking,
     });
   } catch (error) {
     return res.status(500).json({
@@ -451,225 +414,11 @@ export const getOrderById = async (req, res) => {
 };
 
 /**
- * @desc    Get detailed live order tracking metrics
+ * @desc    Get live order tracking status & demo simulated telemetry
  * @route   GET /api/v1/orders/:id/tracking
- * @access  Private / Optional Auth
- */
-export const getOrderTracking = async (req, res) => {
-  return getOrderById(req, res);
-};
-
-/**
- * @desc    Authorized status transition endpoint (Admin / Staff / Partner)
- * @route   PATCH /api/v1/orders/:id/status
- * @access  Protected
- */
-export const updateOrderStatus = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, note } = req.body;
-
-    const validStatuses = ['placed', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid order status. Allowed: ${validStatuses.join(', ')}`,
-      });
-    }
-
-    // Role check: Only admin, restaurant staff, or delivery partner can update order status directly
-    const allowedRoles = ['admin', 'restaurant_staff', 'delivery_partner'];
-    const userRole = req.user?.role;
-    const isDemoOverride = DEMO_TRACKING_CONFIG.enabled && req.headers['x-demo-admin'] === 'true';
-
-    if (!isDemoOverride && (!req.user || !allowedRoles.includes(userRole))) {
-      return res.status(403).json({
-        success: false,
-        message: 'You are not authorized to update order status. Customers cannot directly set status.',
-      });
-    }
-
-    let order = null;
-    if (isDbConnected()) {
-      order = await Order.findOne({
-        $or: [{ _id: mongoose.isValidObjectId(id) ? id : null }, { orderId: id }],
-      });
-    } else {
-      order = fallbackOrders.find((o) => o._id === id || o.orderId === id);
-    }
-
-    if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found.' });
-    }
-
-    // Allowed status transitions
-    const validTransitions = {
-      placed: ['confirmed', 'cancelled'],
-      confirmed: ['preparing', 'cancelled'],
-      preparing: ['out_for_delivery', 'cancelled'],
-      out_for_delivery: ['delivered', 'cancelled'],
-      delivered: [],
-      cancelled: [],
-    };
-
-    if (
-      !isDemoOverride &&
-      order.orderStatus !== status &&
-      !validTransitions[order.orderStatus]?.includes(status)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid status transition from '${order.orderStatus}' to '${status}'.`,
-      });
-    }
-
-    // When progressing to out_for_delivery, assign partner if not yet assigned
-    if (status === 'out_for_delivery' && !order.deliveryPartner) {
-      const partner = await assignDeliveryPartner(order.orderId);
-      if (partner) {
-        order.deliveryPartner = partner._id;
-        order.deliveryPartnerAssignedAt = new Date();
-      }
-    }
-
-    // When delivered
-    if (status === 'delivered') {
-      order.deliveredAt = new Date();
-      if (order.paymentMethod === 'cod') {
-        order.paymentStatus = 'paid';
-        order.paidAt = new Date();
-      }
-      await releaseDeliveryPartner(order.deliveryPartner, true);
-      cancelDemoTimers(order.orderId);
-    }
-
-    // When cancelled
-    if (status === 'cancelled') {
-      await releaseDeliveryPartner(order.deliveryPartner, false);
-      cancelDemoTimers(order.orderId);
-    }
-
-    order.orderStatus = status;
-    if (!Array.isArray(order.statusHistory)) {
-      order.statusHistory = [];
-    }
-
-    order.statusHistory.push({
-      status,
-      timestamp: new Date(),
-      note: note || `Status updated to ${status.replace('_', ' ')} by authorized staff.`,
-    });
-
-    if (isDbConnected() && typeof order.save === 'function') {
-      await order.save();
-    }
-
-    let partnerInfo = null;
-    if (order.deliveryPartner) {
-      partnerInfo = await getPartnerDetails(order.deliveryPartner);
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: `Order status updated to '${status}'.`,
-      order,
-      deliveryPartner: partnerInfo,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to update order status.',
-      error: error.message,
-    });
-  }
-};
-
-/**
- * @desc    Reset demo tracking timeline and restart simulation (Demo / Testing)
- * @route   POST /api/v1/orders/:id/reset-demo
- * @access  Private / Optional Auth
- */
-export const resetDemoTracking = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    let order = null;
-    if (isDbConnected()) {
-      order = await Order.findOne({
-        $or: [{ _id: mongoose.isValidObjectId(id) ? id : null }, { orderId: id }],
-      });
-    } else {
-      order = fallbackOrders.find((o) => o._id === id || o.orderId === id);
-    }
-
-    if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found.' });
-    }
-
-    cancelDemoTimers(order.orderId);
-
-    // Release existing partner if assigned
-    if (order.deliveryPartner) {
-      await releaseDeliveryPartner(order.deliveryPartner, false);
-    }
-
-    // Select next partner dynamically to demonstrate round-robin
-    const newPartner = await assignDeliveryPartner(order.orderId);
-
-    const now = new Date();
-    order.orderStatus = 'placed';
-    order.placedAt = now;
-    order.createdAt = now;
-    order.deliveredAt = null;
-    order.deliveryPartner = newPartner ? newPartner._id : null;
-    order.deliveryPartnerAssignedAt = newPartner ? now : null;
-
-    if (order.paymentMethod === 'cod') {
-      order.paymentStatus = 'unpaid';
-      order.paidAt = null;
-    }
-
-    order.statusHistory = [
-      {
-        status: 'placed',
-        timestamp: now,
-        note: 'Demo tracking simulation restarted.',
-      },
-    ];
-
-    if (isDbConnected() && typeof order.save === 'function') {
-      await order.save();
-    }
-
-    // Re-schedule progression timers
-    scheduleDemoProgression(order.orderId, Date.now());
-
-    let partnerInfo = null;
-    if (order.deliveryPartner) {
-      partnerInfo = await getPartnerDetails(order.deliveryPartner);
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: 'Demo tracking timeline reset. Simulation restarted.',
-      order,
-      deliveryPartner: partnerInfo,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to reset demo tracking.',
-      error: error.message,
-    });
-  }
-};
-
-/**
- * @desc    Cancel an order
- * @route   POST /api/v1/orders/:id/cancel
  * @access  Private
  */
-export const cancelOrder = async (req, res) => {
+export const getOrderTracking = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user ? (req.user._id || req.user.id) : null;
@@ -684,10 +433,155 @@ export const cancelOrder = async (req, res) => {
     }
 
     if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found.',
+      });
+    }
+
+    // Authorization check
+    if (
+      req.user &&
+      order.user &&
+      order.user.toString() !== userId?.toString() &&
+      req.user.role !== 'admin'
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to view tracking for this order.',
+      });
+    }
+
+    const trackingData = await evaluateOrderTracking(order);
+
+    return res.status(200).json({
+      success: true,
+      data: trackingData,
+      order,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve order tracking details.',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Fast-forward or reset demo order simulation for testing
+ * @route   POST /api/v1/orders/:id/demo-advance
+ * @access  Public / Dev Test Mode
+ */
+export const demoAdvanceOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { targetStatus } = req.body;
+
+    let order = null;
+    if (isDbConnected()) {
+      order = await Order.findOne({
+        $or: [{ _id: mongoose.isValidObjectId(id) ? id : null }, { orderId: id }],
+      });
+    } else {
+      order = fallbackOrders.find((o) => o._id === id || o.orderId === id);
+    }
+
+    if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found.' });
     }
 
-    if (userId && order.user && order.user.toString() !== userId.toString() && req.user.role !== 'admin') {
+    const validStatuses = [
+      'placed',
+      'confirmed',
+      'preparing',
+      'out_for_delivery',
+      'delivered',
+      'reset',
+    ];
+    if (!validStatuses.includes(targetStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid target status. Must be one of: ${validStatuses.join(', ')}`,
+      });
+    }
+
+    if (targetStatus === 'reset') {
+      order.orderStatus = 'placed';
+      order.placedAt = new Date();
+      order.deliveryPartner = null;
+      order.deliveryPartnerAssignedAt = null;
+      order.deliveryCompletedAt = null;
+      order.deliveredAt = null;
+      await releaseDeliveryPartner(order.orderId);
+    } else if (targetStatus === 'confirmed') {
+      if (!order.deliveryPartner) {
+        order.deliveryPartner = await assignDeliveryPartner(order.orderId);
+      }
+      order.orderStatus = 'confirmed';
+      order.deliveryPartnerAssignedAt = new Date();
+    } else if (targetStatus === 'preparing') {
+      if (!order.deliveryPartner) {
+        order.deliveryPartner = await assignDeliveryPartner(order.orderId);
+      }
+      order.orderStatus = 'preparing';
+    } else if (targetStatus === 'out_for_delivery') {
+      if (!order.deliveryPartner) {
+        order.deliveryPartner = await assignDeliveryPartner(order.orderId);
+      }
+      order.orderStatus = 'out_for_delivery';
+    } else if (targetStatus === 'delivered') {
+      order.orderStatus = 'delivered';
+      order.deliveryCompletedAt = new Date();
+      order.deliveredAt = new Date();
+      await releaseDeliveryPartner(order.orderId);
+    }
+
+    if (typeof order.save === 'function') {
+      await order.save();
+    }
+
+    const trackingData = await evaluateOrderTracking(order);
+
+    return res.status(200).json({
+      success: true,
+      message: `Demo order state updated to ${targetStatus}`,
+      data: trackingData,
+      order,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to advance demo order simulation.',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Cancel an order
+ * @route   POST /api/v1/orders/:id/cancel
+ * @access  Private
+ */
+export const cancelOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user._id || req.user.id;
+
+    let order = null;
+    if (isDbConnected()) {
+      order = await Order.findOne({
+        $or: [{ _id: mongoose.isValidObjectId(id) ? id : null }, { orderId: id }],
+      });
+    } else {
+      order = fallbackOrders.find((o) => o._id === id || o.orderId === id);
+    }
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+
+    if (order.user.toString() !== userId.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Not authorized to cancel this order.' });
     }
 
@@ -698,22 +592,8 @@ export const cancelOrder = async (req, res) => {
       });
     }
 
-    cancelDemoTimers(order.orderId);
-    if (order.deliveryPartner) {
-      await releaseDeliveryPartner(order.deliveryPartner, false);
-    }
-
     order.orderStatus = 'cancelled';
-    if (!Array.isArray(order.statusHistory)) {
-      order.statusHistory = [];
-    }
-    order.statusHistory.push({
-      status: 'cancelled',
-      timestamp: new Date(),
-      note: 'Order cancelled by user.',
-    });
-
-    if (isDbConnected() && typeof order.save === 'function') {
+    if (isDbConnected()) {
       await order.save();
     }
 

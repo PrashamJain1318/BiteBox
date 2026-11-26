@@ -141,34 +141,6 @@ const orderSchema = new mongoose.Schema(
       default: 'placed',
       index: true,
     },
-    deliveryPartner: {
-      type: mongoose.Schema.Types.Mixed,
-      ref: 'DeliveryPartner',
-      default: null,
-      index: true,
-    },
-    deliveryPartnerAssignedAt: {
-      type: Date,
-    },
-    statusHistory: [
-      {
-        status: {
-          type: String,
-          enum: ['placed', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'],
-        },
-        timestamp: {
-          type: Date,
-          default: Date.now,
-        },
-        note: {
-          type: String,
-        },
-      },
-    ],
-    estimatedDeliveryMinutes: {
-      type: Number,
-      default: 30,
-    },
     razorpayOrderId: {
       type: String,
       index: true,
@@ -191,6 +163,58 @@ const orderSchema = new mongoose.Schema(
     },
     deliveredAt: {
       type: Date,
+    },
+    // Delivery Partner & Demo Simulation Fields
+    deliveryPartner: {
+      id: { type: String },
+      name: { type: String },
+      phone: { type: String },
+      vehicle: { type: String },
+      rating: { type: Number },
+      completedDeliveries: { type: Number },
+    },
+    deliveryPartnerAssignedAt: {
+      type: Date,
+    },
+    estimatedDeliveryAt: {
+      type: Date,
+    },
+    deliveryCompletedAt: {
+      type: Date,
+    },
+    assignmentDurationSeconds: {
+      type: Number,
+      default: 18,
+    },
+    totalDeliveryDurationSeconds: {
+      type: Number,
+      default: 540,
+    },
+    demoSimulation: {
+      type: Boolean,
+      default: true,
+    },
+    demoRoute: {
+      restaurant: {
+        name: { type: String, default: 'BiteBox Partner Kitchen' },
+        lat: { type: Number, default: 12.9352 },
+        lng: { type: Number, default: 77.6245 },
+      },
+      destination: {
+        address: { type: String, default: 'Delivery Address' },
+        lat: { type: Number, default: 12.9279 },
+        lng: { type: Number, default: 77.6385 },
+      },
+      waypoints: {
+        type: [[Number]],
+        default: [
+          [12.9352, 77.6245],
+          [12.9338, 77.628],
+          [12.9315, 77.632],
+          [12.9298, 77.6355],
+          [12.9279, 77.6385],
+        ],
+      },
     },
   },
   {

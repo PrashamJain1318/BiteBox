@@ -9,7 +9,7 @@
     "server:dev": "node --watch server/src/server.js",
     "build": "vite build",
     "lint": "oxlint",
-    "test": "node --test test/coupon-payment.test.js",
+    "test": "node --test test/coupon-payment.test.js test/order-tracking.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

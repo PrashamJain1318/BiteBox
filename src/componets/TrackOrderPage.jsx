@@ -1,120 +1,97 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { apiFetch } from '../api/apiConfig'
-import DeliveryTrackingMap from '../components/tracking/DeliveryTrackingMap'
 import '../style.css'
-
-const LIFECYCLE_STEPS = [
-  {
-    key: 'placed',
-    num: 1,
-    label: 'Order Placed',
-    desc: 'Order received by BiteBox',
-    icon: '📝',
-  },
-  {
-    key: 'confirmed',
-    num: 2,
-    label: 'Order Confirmed',
-    desc: 'Accepted by kitchen',
-    icon: '✓',
-  },
-  {
-    key: 'preparing',
-    num: 3,
-    label: 'Preparing Food',
-    desc: 'Chef cooking with fresh ingredients',
-    icon: '👨‍🍳',
-  },
-  {
-    key: 'out_for_delivery',
-    num: 4,
-    label: 'Out for Delivery',
-    desc: 'Valet riding to your address',
-    icon: '🛵',
-  },
-  {
-    key: 'delivered',
-    num: 5,
-    label: 'Delivered',
-    desc: 'Delivered hot & fresh to you',
-    icon: '🎉',
-  },
-]
 
 export default function TrackOrderPage() {
   const { orderId } = useParams()
 
   const [order, setOrder] = useState(null)
-  const [allOrders, setAllOrders] = useState([])
   const [tracking, setTracking] = useState(null)
-  const [deliveryPartner, setDeliveryPartner] = useState(null)
-  const [demoMode, setDemoMode] = useState(true)
+  const [allOrders, setAllOrders] = useState([])
   const [loading, setLoading] = useState(true)
-  const [actionMessage, setActionMessage] = useState(null)
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
+  const [activeStep, setActiveStep] = useState(1) // 1: Placed, 2: Confirmed, 3: Preparing, 4: Out for Delivery, 5: Delivered
+  const [remainingSeconds, setRemainingSeconds] = useState(0)
+  const [isDemoAdvancing, setIsDemoAdvancing] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
 
-  const pollingTimerRef = useRef(null)
+  // Map refs
+  const mapContainerRef = useRef(null)
+  const mapInstanceRef = useRef(null)
+  const routeLineRef = useRef(null)
+  const restaurantMarkerRef = useRef(null)
+  const destinationMarkerRef = useRef(null)
+  const riderMarkerRef = useRef(null)
 
-  // Map status string to stepper step number
-  const statusMap = {
-    placed: 1,
-    confirmed: 2,
-    preparing: 3,
-    out_for_delivery: 4,
-    delivered: 5,
-    cancelled: 0,
+  // Status mapping to 5-step stepper
+  const getStepNumber = (status) => {
+    switch (status) {
+      case 'placed':
+        return 1
+      case 'confirmed':
+        return 2
+      case 'preparing':
+        return 3
+      case 'out_for_delivery':
+        return 4
+      case 'delivered':
+        return 5
+      case 'cancelled':
+        return 0
+      default:
+        return 1
+    }
   }
 
-  const currentStep = order?.orderStatus ? statusMap[order.orderStatus] || 1 : 1
-
-  // Fetch live order details with tracking metrics
-  const fetchOrderDetails = useCallback(async (isInitial = false) => {
+  // Fetch tracking data from backend
+  const fetchTrackingData = useCallback(async () => {
     if (!orderId) return
 
     try {
-      const res = await apiFetch(`/orders/${orderId}`)
+      // 1. Try dedicated live tracking endpoint
+      const res = await apiFetch(`/orders/${orderId}/tracking`)
       const data = await res.json()
 
-      if (data.success && data.order) {
-        setOrder(data.order)
-        if (data.deliveryPartner) {
-          setDeliveryPartner(data.deliveryPartner)
+      if (data.success && data.data) {
+        setTracking(data.data)
+        if (data.order) setOrder(data.order)
+        const step = getStepNumber(data.data.orderStatus)
+        setActiveStep(step)
+        if (typeof data.data.remainingSeconds === 'number') {
+          setRemainingSeconds(data.data.remainingSeconds)
         }
-        if (data.tracking) {
-          setTracking(data.tracking)
-        }
-        if (typeof data.demoMode === 'boolean') {
-          setDemoMode(data.demoMode)
+        return data.data
+      }
+
+      // 2. Fallback to general order endpoint
+      const resOrder = await apiFetch(`/orders/${orderId}`)
+      const dataOrder = await resOrder.json()
+      if (dataOrder.success && dataOrder.order) {
+        setOrder(dataOrder.order)
+        if (dataOrder.tracking) {
+          setTracking(dataOrder.tracking)
+          setActiveStep(getStepNumber(dataOrder.tracking.orderStatus))
+          if (typeof dataOrder.tracking.remainingSeconds === 'number') {
+            setRemainingSeconds(dataOrder.tracking.remainingSeconds)
+          }
+        } else {
+          setActiveStep(getStepNumber(dataOrder.order.orderStatus))
         }
       }
     } catch (err) {
-      console.warn('⚠️ Order tracking poll error:', err.message)
-    } finally {
-      if (isInitial) {
-        setLoading(false)
-      }
+      console.warn('⚠️ Order tracking fetch warning:', err.message)
     }
   }, [orderId])
 
-  // Initial fetch and 4-second reactive polling loop
+  // Initial load
   useEffect(() => {
     if (orderId) {
-      fetchOrderDetails(true)
-
-      // Start reactive polling interval
-      pollingTimerRef.current = setInterval(() => {
-        fetchOrderDetails(false)
-      }, 4000)
-
-      return () => {
-        if (pollingTimerRef.current) {
-          clearInterval(pollingTimerRef.current)
-          pollingTimerRef.current = null
-        }
-      }
+      setLoading(true)
+      fetchTrackingData().finally(() => setLoading(false))
     } else {
-      // Fetch user's order history
+      // Fetch order history for /my-orders
       apiFetch('/orders/my-orders')
         .then((res) => res.json())
         .then((data) => {
@@ -125,85 +102,234 @@ export default function TrackOrderPage() {
         .catch((err) => console.warn(err))
         .finally(() => setLoading(false))
     }
-  }, [orderId, fetchOrderDetails])
+  }, [orderId, fetchTrackingData])
 
-  // Stop polling once order is cancelled or delivered for 20+ seconds
+  // Background polling every 3.5 seconds while order is active
   useEffect(() => {
-    if (order?.orderStatus === 'cancelled') {
-      if (pollingTimerRef.current) {
-        clearInterval(pollingTimerRef.current)
-        pollingTimerRef.current = null
+    if (!orderId) return
+
+    const pollInterval = setInterval(() => {
+      // Stop polling once delivered or cancelled
+      if (activeStep === 5 || activeStep === 0) {
+        return
       }
-    }
-  }, [order?.orderStatus])
+      fetchTrackingData()
+    }, 3500)
 
-  // Demo Admin Transition Handler
-  const handleManualStatusUpdate = async (newStatus) => {
-    if (!orderId || isUpdatingStatus) return
+    return () => clearInterval(pollInterval)
+  }, [orderId, activeStep, fetchTrackingData])
 
-    setIsUpdatingStatus(true)
-    setActionMessage(`Updating status to ${newStatus.replace('_', ' ')}...`)
+  // Local second-by-second countdown ticker
+  useEffect(() => {
+    if (remainingSeconds <= 0 || activeStep === 5 || activeStep === 0) return
+
+    const secondTimer = setInterval(() => {
+      setRemainingSeconds((prev) => (prev > 0 ? prev - 1 : 0))
+    }, 1000)
+
+    return () => clearInterval(secondTimer)
+  }, [remainingSeconds, activeStep])
+
+  // Helper to format remaining time
+  const formatCountdown = (totalSecs) => {
+    if (activeStep === 5) return 'Delivered • Enjoy your meal!'
+    if (activeStep === 0) return 'Order Cancelled'
+    if (totalSecs <= 0) return 'Arriving momentarily...'
+    const mins = Math.floor(totalSecs / 60)
+    const secs = totalSecs % 60
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')} mins`
+  }
+
+  // Fast-forward / Reset simulation for instant testing
+  const handleDemoAdvance = async (targetStatus) => {
+    if (!orderId || isDemoAdvancing) return
+    setIsDemoAdvancing(true)
+    setErrorMsg('')
 
     try {
-      const res = await apiFetch(`/orders/${orderId}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-demo-admin': 'true',
-        },
-        body: JSON.stringify({
-          status: newStatus,
-          note: `Manual status transition to ${newStatus.replace('_', ' ')} via demo controls.`,
-        }),
+      const res = await apiFetch(`/orders/${orderId}/demo-advance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetStatus }),
       })
-
       const data = await res.json()
-      if (data.success && data.order) {
-        setOrder(data.order)
-        if (data.deliveryPartner) {
-          setDeliveryPartner(data.deliveryPartner)
-        }
-        setActionMessage(`✓ Status updated to ${newStatus.replace('_', ' ').toUpperCase()}`)
-        setTimeout(() => setActionMessage(null), 3500)
-        await fetchOrderDetails(false)
+      if (data.success) {
+        await fetchTrackingData()
       } else {
-        setActionMessage(`⚠️ ${data.message || 'Failed to update status'}`)
-        setTimeout(() => setActionMessage(null), 4000)
+        setErrorMsg(data.message || 'Failed to advance demo status.')
       }
     } catch (err) {
-      setActionMessage(`⚠️ Error: ${err.message}`)
-      setTimeout(() => setActionMessage(null), 4000)
+      setErrorMsg(err.message || 'Network error advancing demo.')
     } finally {
-      setIsUpdatingStatus(false)
+      setIsDemoAdvancing(false)
     }
   }
 
-  // Reset Demo Simulation Handler
-  const handleResetDemo = async () => {
-    if (!orderId || isUpdatingStatus) return
-
-    setIsUpdatingStatus(true)
-    setActionMessage('Restarting simulation with new delivery partner...')
+  // Initialize Leaflet Map
+  useEffect(() => {
+    if (!orderId || !mapContainerRef.current) return
+    if (mapInstanceRef.current) return // Already initialized
 
     try {
-      const res = await apiFetch(`/orders/${orderId}/reset-demo`, {
-        method: 'POST',
+      const defaultCenter = [12.9315, 77.632]
+      const map = L.map(mapContainerRef.current, {
+        center: defaultCenter,
+        zoom: 14,
+        zoomControl: true,
+        scrollWheelZoom: false,
       })
-      const data = await res.json()
-      if (data.success && data.order) {
-        setOrder(data.order)
-        if (data.deliveryPartner) {
-          setDeliveryPartner(data.deliveryPartner)
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 18,
+      }).addTo(map)
+
+      mapInstanceRef.current = map
+
+      // Invalidate size after DOM settles
+      setTimeout(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize()
         }
-        setActionMessage('✓ Demo simulation restarted! Status set to Order Placed.')
-        setTimeout(() => setActionMessage(null), 3500)
-        await fetchOrderDetails(false)
-      }
+      }, 300)
     } catch (err) {
-      setActionMessage(`⚠️ Reset error: ${err.message}`)
-      setTimeout(() => setActionMessage(null), 4000)
-    } finally {
-      setIsUpdatingStatus(false)
+      console.warn('Leaflet map initialization warning:', err.message)
+    }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove()
+        mapInstanceRef.current = null
+        routeLineRef.current = null
+        restaurantMarkerRef.current = null
+        destinationMarkerRef.current = null
+        riderMarkerRef.current = null
+      }
+    }
+  }, [orderId])
+
+  // Update Map Markers & Route when tracking telemetry updates
+  useEffect(() => {
+    const map = mapInstanceRef.current
+    if (!map || !tracking) return
+
+    const waypoints = tracking.route || [
+      [12.9352, 77.6245],
+      [12.9338, 77.628],
+      [12.9315, 77.632],
+      [12.9298, 77.6355],
+      [12.9279, 77.6385],
+    ]
+
+    const restaurant = tracking.restaurant || {
+      lat: waypoints[0][0],
+      lng: waypoints[0][1],
+      name: 'BiteBox Partner Kitchen',
+    }
+    const destination = tracking.destination || {
+      lat: waypoints[waypoints.length - 1][0],
+      lng: waypoints[waypoints.length - 1][1],
+      address: 'Delivery Destination',
+    }
+    const riderLoc = tracking.currentLocation || {
+      lat: waypoints[0][0],
+      lng: waypoints[0][1],
+    }
+    const partnerName = tracking.deliveryPartner
+      ? tracking.deliveryPartner.name
+      : 'BiteBox Valet Rider'
+
+    // 1. Draw / Update Route Polyline
+    if (!routeLineRef.current) {
+      routeLineRef.current = L.polyline(waypoints, {
+        color: '#ff5200',
+        weight: 5,
+        opacity: 0.85,
+        lineCap: 'round',
+        lineJoin: 'round',
+      }).addTo(map)
+
+      // Fit map bounds to encompass full route
+      const bounds = L.latLngBounds(waypoints)
+      map.fitBounds(bounds, { padding: [40, 40] })
+    } else {
+      routeLineRef.current.setLatLngs(waypoints)
+    }
+
+    // 2. Restaurant Marker
+    if (!restaurantMarkerRef.current) {
+      const kitchenIcon = L.divIcon({
+        className: 'bitebox-map-marker kitchen-pin',
+        html: `<div class="pin-bubble orange"><span>🍴</span></div><div class="pin-label">Kitchen</div>`,
+        iconSize: [42, 54],
+        iconAnchor: [21, 54],
+        popupAnchor: [0, -50],
+      })
+      restaurantMarkerRef.current = L.marker([restaurant.lat, restaurant.lng], {
+        icon: kitchenIcon,
+      })
+        .addTo(map)
+        .bindPopup(`<strong>${restaurant.name}</strong><br/>Order Prepared Here`)
+    }
+
+    // 3. Destination Marker
+    if (!destinationMarkerRef.current) {
+      const destIcon = L.divIcon({
+        className: 'bitebox-map-marker destination-pin',
+        html: `<div class="pin-bubble green"><span>🏠</span></div><div class="pin-label">You</div>`,
+        iconSize: [42, 54],
+        iconAnchor: [21, 54],
+        popupAnchor: [0, -50],
+      })
+      destinationMarkerRef.current = L.marker([destination.lat, destination.lng], {
+        icon: destIcon,
+      })
+        .addTo(map)
+        .bindPopup(`<strong>Delivery Destination</strong><br/>${destination.address}`)
+    }
+
+    // 4. Rider Marker
+    const riderHtml = `
+      <div class="rider-pin-wrap">
+        <div class="rider-radar-wave"></div>
+        <div class="pin-bubble rider"><span>🛵</span></div>
+      </div>
+      <div class="pin-label rider-name">${partnerName.split(' ')[0]}</div>
+    `
+    const riderIcon = L.divIcon({
+      className: 'bitebox-map-marker rider-pin',
+      html: riderHtml,
+      iconSize: [46, 56],
+      iconAnchor: [23, 56],
+      popupAnchor: [0, -50],
+    })
+
+    if (!riderMarkerRef.current) {
+      riderMarkerRef.current = L.marker([riderLoc.lat, riderLoc.lng], {
+        icon: riderIcon,
+        zIndexOffset: 1000,
+      })
+        .addTo(map)
+        .bindPopup(
+          `<strong>${partnerName}</strong><br/>🛵 Status: ${tracking.orderStatus.replace('_', ' ').toUpperCase()}<br/><small>Simulated Live Movement</small>`
+        )
+    } else {
+      riderMarkerRef.current.setLatLng([riderLoc.lat, riderLoc.lng])
+      riderMarkerRef.current.setIcon(riderIcon)
+      riderMarkerRef.current.setPopupContent(
+        `<strong>${partnerName}</strong><br/>🛵 Status: ${tracking.orderStatus.replace('_', ' ').toUpperCase()}<br/><small>Simulated Live Movement</small>`
+      )
+    }
+  }, [tracking])
+
+  const handleRecenterMap = () => {
+    if (!mapInstanceRef.current || !tracking) return
+    const riderLoc = tracking.currentLocation
+    if (riderLoc) {
+      mapInstanceRef.current.setView([riderLoc.lat, riderLoc.lng], 15, {
+        animate: true,
+      })
     }
   }
 
@@ -212,7 +338,7 @@ export default function TrackOrderPage() {
       <div className="track-order-container">
         <div className="status-spinner-wrap">
           <div className="status-spinner" />
-          <p>Connecting to BiteBox live telemetry & MongoDB...</p>
+          <p>Connecting to BiteBox live delivery network...</p>
         </div>
       </div>
     )
@@ -224,7 +350,7 @@ export default function TrackOrderPage() {
       <div className="my-orders-container">
         <div className="my-orders-header">
           <h1>My Orders History</h1>
-          <p>Track your past delicious meals and live active deliveries</p>
+          <p>Track your past meals and active live deliveries in real-time</p>
         </div>
 
         {allOrders.length === 0 ? (
@@ -253,7 +379,7 @@ export default function TrackOrderPage() {
                 </div>
 
                 <div className="order-card-items">
-                  {ord.items?.map((i, idx) => (
+                  {ord.items.map((i, idx) => (
                     <span key={idx} className="item-chip">
                       {i.name} (×{i.quantity})
                     </span>
@@ -280,17 +406,16 @@ export default function TrackOrderPage() {
     )
   }
 
-  // Progress line fill percentage
-  const progressPercent =
-    currentStep <= 1
-      ? 5
-      : currentStep === 2
-        ? 28
-        : currentStep === 3
-          ? 52
-          : currentStep === 4
-            ? 78
-            : 100
+  // SINGLE ORDER TRACKING VIEW
+  const partner = tracking?.deliveryPartner || order?.deliveryPartner
+
+  const steps = [
+    { num: 1, label: 'Order Placed', time: 'Just now', icon: '📝' },
+    { num: 2, label: 'Order Confirmed', time: 'Confirmed by Restaurant', icon: '✓' },
+    { num: 3, label: 'Preparing Food', time: 'Chef is cooking', icon: '👨‍🍳' },
+    { num: 4, label: 'Out for Delivery', time: 'Rider is on the way', icon: '🛵' },
+    { num: 5, label: 'Delivered', time: 'Enjoy your meal!', icon: '🎉' },
+  ]
 
   return (
     <div className="track-order-container">
@@ -298,303 +423,217 @@ export default function TrackOrderPage() {
         {/* Tracking Card Header */}
         <div className="track-header">
           <div>
-            <div className="track-header-badges">
+            <div className="track-badge-row">
               <span className="track-sub">LIVE DELIVERY STATUS</span>
-              {demoMode && (
-                <span className="demo-mode-badge" title="Demo auto-progression is enabled">
-                  ⚡ DEMO MODE
-                </span>
-              )}
+              <span className="demo-live-pill">⚡ SIMULATED LIVE TRACKING</span>
             </div>
             <h1 className="track-order-id">Order {order?.orderId || orderId}</h1>
             <p className="track-est-time">
-              {order?.orderStatus === 'delivered' ? (
-                <span className="delivered-tag">🎉 Order Delivered Successfully</span>
-              ) : order?.orderStatus === 'cancelled' ? (
-                <span className="cancelled-tag">✕ Order Cancelled</span>
-              ) : (
-                <>
-                  Estimated Delivery: <strong>{tracking?.etaMinutes ?? 25} mins</strong>
-                  <span className="est-sub"> • Handcrafted fresh at BiteBox kitchen</span>
-                </>
+              Estimated Delivery: <strong>{formatCountdown(remainingSeconds)}</strong>
+              {activeStep < 5 && activeStep > 0 && (
+                <span className="live-dot-pulse">● Live Tracking</span>
               )}
             </p>
           </div>
           <Link to="/my-orders" className="all-orders-link">
-            ← View All Orders
+            View All Orders
           </Link>
         </div>
 
-        {/* Dynamic Multi-Step Timeline */}
-        <div className="track-timeline-section">
-          <div className="stepper-horizontal">
-            {/* Connecting progress track line */}
-            <div className="stepper-track-bg">
+        {/* 5-Step Live Stepper */}
+        <div className="stepper-horizontal">
+          {steps.map((s) => {
+            const isDone = activeStep >= s.num
+            const isCurrent = activeStep === s.num
+            return (
               <div
-                className="stepper-track-fill"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-
-            {LIFECYCLE_STEPS.map((step) => {
-              const isDone = currentStep > step.num || order?.orderStatus === 'delivered'
-              const isCurrent = currentStep === step.num && order?.orderStatus !== 'delivered'
-              const isUpcoming = currentStep < step.num && order?.orderStatus !== 'delivered'
-
-              // Find milestone timestamp in statusHistory
-              const historyItem = order?.statusHistory?.find((h) => h.status === step.key)
-              const timeString = historyItem?.timestamp
-                ? new Date(historyItem.timestamp).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
-                : step.num === 1 && order?.placedAt
-                  ? new Date(order.placedAt).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })
-                  : null
-
-              return (
-                <div
-                  key={step.key}
-                  className={`stepper-node ${isDone ? 'done' : ''} ${isCurrent ? 'current' : ''} ${isUpcoming ? 'upcoming' : ''}`}
-                >
-                  <div className="stepper-circle">
-                    {isDone ? (
-                      <span className="check-icon">✓</span>
-                    ) : isCurrent ? (
-                      <span className="current-pulse-icon">{step.icon}</span>
-                    ) : (
-                      <span className="upcoming-num">{step.num}</span>
-                    )}
-                  </div>
-                  <div className="stepper-info">
-                    <strong className="stepper-label">{step.label}</strong>
-                    <span className="stepper-time">
-                      {timeString ? `⏱️ ${timeString}` : isCurrent ? 'In progress' : step.desc}
-                    </span>
-                  </div>
+                key={s.num}
+                className={`stepper-node ${isDone ? 'done' : ''} ${isCurrent ? 'current' : ''}`}
+              >
+                <div className="stepper-circle">{isDone ? s.icon : s.num}</div>
+                <div className="stepper-info">
+                  <strong>{s.label}</strong>
+                  <span>{s.time}</span>
                 </div>
-              )
-            })}
-          </div>
+              </div>
+            )
+          })}
         </div>
 
-        {/* Cancellation Notice if Cancelled */}
-        {order?.orderStatus === 'cancelled' && (
-          <div className="order-cancelled-banner">
-            <span className="cancel-icon">⚠️</span>
-            <div>
-              <h4>This order was cancelled</h4>
-              <p>Refund or cancellation details have been updated in your account.</p>
+        {/* Interactive Demo Map Section */}
+        <div className="demo-map-section">
+          <div className="demo-map-header">
+            <div className="demo-map-title-wrap">
+              <span className="map-badge-icon">🗺️</span>
+              <h3>Live Courier Route & GPS Telemetry</h3>
             </div>
+            <button
+              type="button"
+              className="map-recenter-btn"
+              onClick={handleRecenterMap}
+              title="Recenter on delivery partner"
+            >
+              📍 Center on Rider
+            </button>
           </div>
-        )}
 
-        {/* Interactive Delivery Tracking Map */}
-        <DeliveryTrackingMap
-          order={order}
-          tracking={tracking}
-          partner={deliveryPartner}
-          orderStatus={order?.orderStatus || 'placed'}
-        />
+          <div className="demo-map-frame">
+            <div
+              id="demo-tracking-map"
+              ref={mapContainerRef}
+              className="demo-map-canvas"
+            />
+          </div>
 
-        {/* Dynamic Delivery Partner Card */}
-        <div className="dynamic-rider-card">
-          {deliveryPartner ? (
-            <div className="rider-card-inner">
-              <div className="rider-avatar-wrap">
-                <span className="rider-vehicle-icon">
-                  {deliveryPartner.vehicleType?.toLowerCase().includes('scooter') ||
-                  deliveryPartner.vehicleType?.toLowerCase().includes('ev') ||
-                  deliveryPartner.vehicleType?.toLowerCase().includes('ather')
-                    ? '🛵'
-                    : '🏍️'}
-                </span>
-                <span className="rider-active-badge">ASSIGNED</span>
-              </div>
-
-              <div className="rider-info-col">
-                <div className="rider-name-row">
-                  <h4>{deliveryPartner.name}</h4>
-                  <span className="rider-valet-tag">Delivery Valet</span>
-                  {demoMode && <span className="demo-valet-tag">Demo Valet</span>}
-                </div>
-                <p className="rider-vehicle-text">
-                  <span>{deliveryPartner.vehicleType}</span> • <strong>{deliveryPartner.vehicleNumber}</strong>
-                </p>
-                <div className="rider-metrics-row">
-                  <span className="rider-rating">⭐ {deliveryPartner.rating || 4.8} Rating</span>
-                  <span className="rider-deliveries">
-                    🏆 {deliveryPartner.completedDeliveries || 1000}+ safe deliveries
-                  </span>
-                  {order?.deliveryPartnerAssignedAt && (
-                    <span className="rider-assigned-time">
-                      ⏱️ Assigned {new Date(order.deliveryPartnerAssignedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="rider-action-col">
-                <a
-                  href={`tel:${deliveryPartner.phone?.replace(/[^0-9+]/g, '') || '9876543210'}`}
-                  className="call-rider-btn"
-                  title="Call delivery partner"
-                >
-                  <span className="call-icon">📞</span>
-                  <span>Call Partner</span>
-                </a>
-                <span className="rider-phone-masked">{deliveryPartner.phone}</span>
-              </div>
-            </div>
-          ) : (
-            <div className="rider-finding-box">
-              <div className="finding-pulse-ring" />
-              <div className="finding-text-wrap">
-                <h4>Finding your nearest delivery partner...</h4>
-                <p>Matching an available valet partner with optimal delivery route near BiteBox kitchen</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Demo Mode Admin & Simulation Control Panel */}
-        {demoMode && (
-          <div className="demo-controls-panel">
-            <div className="demo-controls-header">
-              <div className="demo-title-wrap">
-                <span className="demo-gear-icon">⚙️</span>
-                <h3>Demo Order Lifecycle Simulator</h3>
-              </div>
-              <span className="demo-timing-pill">
-                Auto-advances: 10s Confirmed → 25s Cooking → 45s Rider → 90s Delivered
-              </span>
-            </div>
-
-            <p className="demo-explanation">
-              You are running in <strong>Demo Mode</strong>. Order statuses advance automatically and update MongoDB in real-time. Use the interactive controls below to manually test state transitions or reset the simulation.
+          <div className="demo-map-disclaimer">
+            <span>ℹ️</span>
+            <p>
+              <strong>Demo simulation:</strong> Rider movement along the street route is simulated in real-time between 8–10 minutes.
             </p>
+          </div>
+        </div>
 
-            <div className="demo-buttons-grid">
-              <button
-                type="button"
-                className={`demo-btn ${order?.orderStatus === 'confirmed' ? 'active' : ''}`}
-                onClick={() => handleManualStatusUpdate('confirmed')}
-                disabled={isUpdatingStatus || order?.orderStatus === 'delivered' || order?.orderStatus === 'cancelled'}
-              >
-                ✓ Confirm
-              </button>
-              <button
-                type="button"
-                className={`demo-btn ${order?.orderStatus === 'preparing' ? 'active' : ''}`}
-                onClick={() => handleManualStatusUpdate('preparing')}
-                disabled={isUpdatingStatus || order?.orderStatus === 'delivered' || order?.orderStatus === 'cancelled'}
-              >
-                👨‍🍳 Cook
-              </button>
-              <button
-                type="button"
-                className={`demo-btn ${order?.orderStatus === 'out_for_delivery' ? 'active' : ''}`}
-                onClick={() => handleManualStatusUpdate('out_for_delivery')}
-                disabled={isUpdatingStatus || order?.orderStatus === 'delivered' || order?.orderStatus === 'cancelled'}
-              >
-                🛵 Dispatch
-              </button>
-              <button
-                type="button"
-                className={`demo-btn ${order?.orderStatus === 'delivered' ? 'active' : ''}`}
-                onClick={() => handleManualStatusUpdate('delivered')}
-                disabled={isUpdatingStatus || order?.orderStatus === 'delivered' || order?.orderStatus === 'cancelled'}
-              >
-                🎉 Delivered
-              </button>
-              <button
-                type="button"
-                className="demo-btn reset-btn"
-                onClick={handleResetDemo}
-                disabled={isUpdatingStatus}
-                title="Reset order to placed state and assign a new delivery partner"
-              >
-                🔄 Reset Simulation
-              </button>
+        {/* Delivery Partner Box */}
+        {partner ? (
+          <div className="rider-card assigned">
+            <div className="rider-avatar">🛵</div>
+            <div className="rider-details">
+              <div className="rider-name-row">
+                <h4>{partner.name}</h4>
+                <span className="partner-verified-badge">✓ Assigned Valet</span>
+              </div>
+              <p>
+                ⭐ {partner.rating || 4.8} Rating • {partner.completedDeliveries || 1200}+ safe deliveries • {partner.vehicle || 'Scooter'}
+              </p>
             </div>
-
-            {actionMessage && <div className="demo-action-toast">{actionMessage}</div>}
+            <a href={`tel:${partner.phone}`} className="call-rider-btn">
+              📞 Call Partner
+            </a>
+          </div>
+        ) : (
+          <div className="rider-card searching">
+            <div className="rider-searching-icon">
+              <div className="pulse-ring" />
+              <span>🔍</span>
+            </div>
+            <div className="rider-details">
+              <h4>Assigning Valet Delivery Partner...</h4>
+              <p>
+                Searching available riders near kitchen (assigns in 15–20s) • Hold tight!
+              </p>
+            </div>
+            <span className="rider-finding-badge">Finding Rider...</span>
           </div>
         )}
 
         {/* Order Details & Summary Breakdown */}
         <div className="track-details-grid">
           <div className="track-items-box">
-            <h3>Dishes in this order ({order?.items?.length || 0})</h3>
-            <ul className="track-dishes-list">
+            <h3>Dishes in this order</h3>
+            <ul>
               {order?.items?.map((item, idx) => (
                 <li key={idx}>
-                  <div className="dish-summary-item">
+                  <div>
                     <strong>{item.name}</strong>
-                    <span className="dish-qty-tag">Qty: {item.quantity}</span>
+                    <span>Quantity: {item.quantity}</span>
                   </div>
-                  <strong className="dish-price-total">₹{item.price * item.quantity}</strong>
+                  <strong>₹{item.price * item.quantity}</strong>
                 </li>
               ))}
             </ul>
-
-            <div className="payment-status-box">
-              <div className="payment-method-indicator">
-                <span>Payment Method:</span>
-                <strong>{order?.paymentMethod === 'cod' ? 'Cash on Delivery (COD)' : 'Online Payment (Razorpay)'}</strong>
-              </div>
-              <div className="payment-badge-row">
-                <span>Payment Status:</span>
-                <span className={`payment-tag ${order?.paymentStatus || 'unpaid'}`}>
-                  {order?.paymentStatus === 'paid'
-                    ? '✓ PAID'
-                    : order?.paymentMethod === 'cod'
-                      ? 'COLLECT CASH ON DELIVERY (UNPAID)'
-                      : 'PENDING'}
-                </span>
-              </div>
-            </div>
           </div>
 
           <div className="track-delivery-box">
             <h3>Delivery Address</h3>
             <p className="recipient-name">
-              <strong>{order?.deliveryAddress?.fullName}</strong>
-              <span className="address-tag-badge">({order?.deliveryAddress?.tag || 'Home'})</span>
+              <strong>{order?.deliveryAddress?.fullName}</strong> (
+              {order?.deliveryAddress?.tag})
             </p>
-            <p className="address-lines">{order?.deliveryAddress?.addressLine}, {order?.deliveryAddress?.area}</p>
-            <p className="address-city-pin">{order?.deliveryAddress?.city} - {order?.deliveryAddress?.pincode}</p>
-            <p className="address-phone">📞 Recipient Phone: {order?.deliveryAddress?.phone}</p>
+            <p>
+              {order?.deliveryAddress?.addressLine}, {order?.deliveryAddress?.area}
+            </p>
+            <p>
+              {order?.deliveryAddress?.city} - {order?.deliveryAddress?.pincode}
+            </p>
+            <p>Phone: {order?.deliveryAddress?.phone}</p>
 
-            <div className="track-price-breakdown">
-              <div className="price-item-row">
-                <span>Items Total:</span>
-                <span>₹{order?.pricing?.itemTotal || 0}</span>
-              </div>
-              {order?.pricing?.discount > 0 && (
-                <div className="price-item-row discount">
-                  <span>Coupon Discount:</span>
-                  <span>-₹{order?.pricing?.discount}</span>
-                </div>
-              )}
-              <div className="price-item-row">
-                <span>Delivery & Taxes:</span>
-                <span>₹{(order?.pricing?.deliveryFee || 40) + (order?.pricing?.taxes || 0)}</span>
-              </div>
-              <div className="track-price-pill">
-                <span>Grand Total:</span>
-                <strong>₹{order?.pricing?.grandTotal || 0}</strong>
-              </div>
+            <div className="track-price-pill">
+              <span>Grand Total ({order?.paymentMethod?.toUpperCase()}):</span>
+              <strong>₹{order?.pricing?.grandTotal || 'Paid'}</strong>
             </div>
+            <div className="track-payment-status-pill">
+              Payment Status:{' '}
+              <span className={`payment-tag ${order?.paymentStatus}`}>
+                {order?.paymentStatus ? order.paymentStatus.toUpperCase() : 'UNPAID'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Demo Fast-Forward / Status Simulation Controls */}
+        <div className="demo-controls-panel">
+          <div className="demo-controls-header">
+            <span className="demo-chip">🧪 DEMO TEST CONTROLS</span>
+            <span className="demo-note">
+              Click any stage to instantly test the 5-step lifecycle and live map without waiting:
+            </span>
+          </div>
+          {errorMsg && <p className="demo-error-banner">{errorMsg}</p>}
+          <div className="demo-action-buttons">
+            <button
+              type="button"
+              className={`demo-btn ${activeStep === 1 ? 'active' : ''}`}
+              onClick={() => handleDemoAdvance('placed')}
+              disabled={isDemoAdvancing}
+            >
+              1. Placed (Searching Rider)
+            </button>
+            <button
+              type="button"
+              className={`demo-btn ${activeStep === 2 ? 'active' : ''}`}
+              onClick={() => handleDemoAdvance('confirmed')}
+              disabled={isDemoAdvancing}
+            >
+              2. Confirmed (Assigns Partner)
+            </button>
+            <button
+              type="button"
+              className={`demo-btn ${activeStep === 3 ? 'active' : ''}`}
+              onClick={() => handleDemoAdvance('preparing')}
+              disabled={isDemoAdvancing}
+            >
+              3. Preparing Food
+            </button>
+            <button
+              type="button"
+              className={`demo-btn ${activeStep === 4 ? 'active' : ''}`}
+              onClick={() => handleDemoAdvance('out_for_delivery')}
+              disabled={isDemoAdvancing}
+            >
+              4. Out for Delivery (Rider Moving)
+            </button>
+            <button
+              type="button"
+              className={`demo-btn ${activeStep === 5 ? 'active' : ''}`}
+              onClick={() => handleDemoAdvance('delivered')}
+              disabled={isDemoAdvancing}
+            >
+              5. Delivered
+            </button>
+            <button
+              type="button"
+              className="demo-btn reset-btn"
+              onClick={() => handleDemoAdvance('reset')}
+              disabled={isDemoAdvancing}
+            >
+              🔄 Reset to Start
+            </button>
           </div>
         </div>
 
         <div className="track-footer-actions">
           <Link to="/" className="order-more-btn">
-            Order More Dishes 🍕
+            Order More Dishes
           </Link>
         </div>
       </div>
