@@ -3,7 +3,23 @@ import { Link, useNavigate } from 'react-router-dom'
 import { CartContext } from '../context/cartContext'
 import { useAuth } from '../context/AuthContext'
 import { apiFetch } from '../api/apiConfig'
+import DeliveryLocationPicker from '../components/maps/DeliveryLocationPicker'
 import '../style.css'
+
+// Helper: Haversine distance in km
+function calculateDistanceInKm(lat1, lon1, lat2, lon2) {
+  const R = 6371
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLon = ((lon2 - lon1) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return Math.round(R * c * 10) / 10
+}
 
 // Helper to dynamically load Razorpay checkout script
 function loadRazorpayScript() {
@@ -29,16 +45,6 @@ export default function CheckoutPage() {
   const [addresses, setAddresses] = useState([])
   const [selectedAddressId, setSelectedAddressId] = useState('')
   const [showAddAddressModal, setShowAddAddressModal] = useState(false)
-  const [newAddress, setNewAddress] = useState({
-    fullName: user?.name || '',
-    phone: '',
-    tag: 'Home',
-    addressLine: '',
-    area: '',
-    city: 'Mumbai',
-    pincode: '',
-    isDefault: true,
-  })
 
   // Payment Method Selection
   // 'upi_qr' | 'upi_app' | 'card' | 'netbanking' | 'cod'
@@ -56,12 +62,34 @@ export default function CheckoutPage() {
     }
   })()
 
+  // Selected address object
+  const activeAddress = addresses.find((a) => (a._id || a.id) === selectedAddressId) || addresses[0]
+
   // Calculate prices
   const itemTotal = cart.reduce((total, item) => total + item.price * (item.qty || 1), 0)
   const totalItems = cart.reduce((total, item) => total + (item.qty || 1), 0)
   const packagingCharges = itemTotal > 0 ? 25 : 0
   const isFreeDelivery = itemTotal >= 500
+
+  // Dynamic distance calculation if customer coords exist
+  let calculatedDistanceKm = null
+  if (activeAddress?.coordinates?.lat && activeAddress?.coordinates?.lng) {
+    const isSouthIndia = activeAddress.coordinates.lat < 15
+    const kitchen = isSouthIndia
+      ? { lat: 12.9352, lng: 77.6245 }
+      : { lat: 19.0596, lng: 72.8295 }
+    calculatedDistanceKm = calculateDistanceInKm(
+      kitchen.lat,
+      kitchen.lng,
+      activeAddress.coordinates.lat,
+      activeAddress.coordinates.lng
+    )
+  }
+
   let deliveryFee = itemTotal === 0 || isFreeDelivery ? 0 : 40
+  if (!isFreeDelivery && itemTotal > 0 && calculatedDistanceKm !== null && calculatedDistanceKm > 4) {
+    deliveryFee = Math.min(120, 40 + Math.round((calculatedDistanceKm - 4) * 10))
+  }
 
   let discountAmount = 0
   if (appliedCoupon && itemTotal > 0) {
@@ -84,97 +112,121 @@ export default function CheckoutPage() {
 
   // Fetch saved delivery addresses
   useEffect(() => {
-    apiFetch('/auth/addresses')
-      .then((res) => res.json())
-      .then((data) => {
+    const fetchSavedAddresses = async () => {
+      // 1. Try dedicated /addresses
+      try {
+        const res = await apiFetch('/addresses')
+        const data = await res.json()
         if (data.success && Array.isArray(data.addresses) && data.addresses.length > 0) {
           setAddresses(data.addresses)
           const defaultAddr = data.addresses.find((a) => a.isDefault) || data.addresses[0]
           setSelectedAddressId(defaultAddr._id || defaultAddr.id)
-        } else {
-          // Provide sample preset addresses for instant testing
-          const demoAddrs = [
-            {
-              _id: 'demo-addr-1',
-              fullName: user?.name || 'Prasham Jain',
-              phone: '9876543210',
-              tag: 'Home',
-              addressLine: 'A-402, Sunshine Heights, Linking Road',
-              area: 'Bandra West',
-              city: 'Mumbai',
-              pincode: '400050',
-              isDefault: true,
-            },
-            {
-              _id: 'demo-addr-2',
-              fullName: user?.name || 'Prasham Jain',
-              phone: '9876543210',
-              tag: 'Work',
-              addressLine: 'Tech Hub Office, 7th Floor, BKC Avenue',
-              area: 'Bandra Kurla Complex',
-              city: 'Mumbai',
-              pincode: '400051',
-              isDefault: false,
-            },
-          ]
-          setAddresses(demoAddrs)
-          setSelectedAddressId('demo-addr-1')
+          return
         }
-      })
-      .catch(() => {
-        // Fallback default address
-        const fallback = [
-          {
-            _id: 'fallback-1',
-            fullName: user?.name || 'Customer',
-            phone: '9876543210',
-            tag: 'Home',
-            addressLine: 'Flat 12B, Palm View Apts',
-            area: 'Andheri West',
-            city: 'Mumbai',
-            pincode: '400053',
-            isDefault: true,
-          },
-        ]
-        setAddresses(fallback)
-        setSelectedAddressId('fallback-1')
-      })
+      } catch {
+        // Fallback to auth/addresses
+      }
+
+      // 2. Try auth/addresses
+      try {
+        const resAuth = await apiFetch('/auth/addresses')
+        const dataAuth = await resAuth.json()
+        if (dataAuth.success && Array.isArray(dataAuth.addresses) && dataAuth.addresses.length > 0) {
+          setAddresses(dataAuth.addresses)
+          const defaultAddr = dataAuth.addresses.find((a) => a.isDefault) || dataAuth.addresses[0]
+          setSelectedAddressId(defaultAddr._id || defaultAddr.id)
+          return
+        }
+      } catch {
+        // Fallback to sample presets
+      }
+
+      // 3. Fallback demo addresses with Google Maps coordinates
+      const demoAddrs = [
+        {
+          _id: 'demo-addr-1',
+          fullName: user?.name || 'Prasham Jain',
+          phone: '9876543210',
+          label: 'Home',
+          tag: 'Home',
+          houseNumber: 'A-402',
+          apartment: 'Sunshine Heights',
+          landmark: 'Linking Road',
+          addressLine: 'A-402, Sunshine Heights, Linking Road',
+          fullAddress: 'A-402, Sunshine Heights, Linking Road, Bandra West, Mumbai, Maharashtra 400050',
+          area: 'Bandra West',
+          city: 'Mumbai',
+          pincode: '400050',
+          coordinates: { lat: 19.0607, lng: 72.8362 },
+          isDefault: true,
+        },
+        {
+          _id: 'demo-addr-2',
+          fullName: user?.name || 'Prasham Jain',
+          phone: '9876543210',
+          label: 'Work',
+          tag: 'Work',
+          houseNumber: 'Tech Hub Office, 7th Floor',
+          apartment: 'BKC Avenue',
+          landmark: 'Near City Park',
+          addressLine: 'Tech Hub Office, 7th Floor, BKC Avenue',
+          fullAddress: 'Tech Hub Office, 7th Floor, BKC Avenue, Bandra Kurla Complex, Mumbai, Maharashtra 400051',
+          area: 'Bandra Kurla Complex',
+          city: 'Mumbai',
+          pincode: '400051',
+          coordinates: { lat: 19.0673, lng: 72.8687 },
+          isDefault: false,
+        },
+      ]
+      setAddresses(demoAddrs)
+      setSelectedAddressId('demo-addr-1')
+    }
+
+    fetchSavedAddresses()
   }, [user])
 
-  // Save new address handler
-  async function handleSaveNewAddress(e) {
-    e.preventDefault()
-    if (!newAddress.fullName || !newAddress.phone || !newAddress.addressLine || !newAddress.area || !newAddress.pincode) {
-      alert('Please fill in all address fields.')
-      return
+  // Handle address saved from Google Maps picker
+  async function handleAddressSavedFromMap(savedAddrData) {
+    try {
+      const res = await apiFetch('/addresses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(savedAddrData),
+      })
+      const data = await res.json()
+      if (data.success && data.address) {
+        setAddresses((prev) => [data.address, ...prev])
+        setSelectedAddressId(data.address._id || data.address.id)
+        setShowAddAddressModal(false)
+        return
+      }
+    } catch {
+      // Continue to fallback
     }
 
     try {
-      const res = await apiFetch('/auth/addresses', {
+      const resAuth = await apiFetch('/auth/addresses', {
         method: 'POST',
-        body: JSON.stringify(newAddress),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(savedAddrData),
       })
-      const data = await res.json()
-      if (data.success && data.addresses) {
-        setAddresses(data.addresses)
-        const added = data.addresses[data.addresses.length - 1]
+      const dataAuth = await resAuth.json()
+      if (dataAuth.success && dataAuth.addresses) {
+        setAddresses(dataAuth.addresses)
+        const added = dataAuth.addresses[dataAuth.addresses.length - 1]
         setSelectedAddressId(added._id || added.id)
-      } else {
-        const localNew = { ...newAddress, _id: `local-addr-${Date.now()}` }
-        setAddresses([...addresses, localNew])
-        setSelectedAddressId(localNew._id)
+        setShowAddAddressModal(false)
+        return
       }
-      setShowAddAddressModal(false)
     } catch {
-      const localNew = { ...newAddress, _id: `local-addr-${Date.now()}` }
-      setAddresses([...addresses, localNew])
-      setSelectedAddressId(localNew._id)
-      setShowAddAddressModal(false)
+      // Local state fallback
     }
-  }
 
-  // Selected address object
-  const activeAddress = addresses.find((a) => (a._id || a.id) === selectedAddressId) || addresses[0]
+    const localNew = { ...savedAddrData, _id: `local-addr-${Date.now()}` }
+    setAddresses((prev) => [localNew, ...prev])
+    setSelectedAddressId(localNew._id)
+    setShowAddAddressModal(false)
+  }
 
   // Main Place Order & Payment Handler
   async function handlePlaceOrder() {
@@ -212,11 +264,26 @@ export default function CheckoutPage() {
           deliveryAddress: {
             fullName: String(activeAddress.fullName || '').trim(),
             phone: String(activeAddress.phone || '').trim(),
-            tag: ['Home', 'Work', 'Other'].includes(activeAddress.tag) ? activeAddress.tag : 'Home',
-            addressLine: String(activeAddress.addressLine || '').trim(),
+            tag: ['Home', 'Work', 'College', 'Other'].includes(activeAddress.tag || activeAddress.label)
+              ? (activeAddress.tag || activeAddress.label)
+              : 'Home',
+            label: String(activeAddress.label || activeAddress.tag || 'Home').trim(),
+            addressLine: String(activeAddress.addressLine || activeAddress.fullAddress || '').trim(),
+            fullAddress: String(activeAddress.fullAddress || activeAddress.addressLine || '').trim(),
+            houseNumber: String(activeAddress.houseNumber || '').trim(),
+            apartment: String(activeAddress.apartment || '').trim(),
+            landmark: String(activeAddress.landmark || '').trim(),
             area: String(activeAddress.area || '').trim(),
             city: String(activeAddress.city || 'Mumbai').trim(),
             pincode: String(activeAddress.pincode || '').trim(),
+            placeId: String(activeAddress.placeId || '').trim(),
+            coordinates:
+              activeAddress.coordinates?.lat && activeAddress.coordinates?.lng
+                ? {
+                    lat: Number(activeAddress.coordinates.lat),
+                    lng: Number(activeAddress.coordinates.lng),
+                  }
+                : undefined,
           },
           couponCode: appliedCoupon?.code,
           paymentMethod,
@@ -422,40 +489,133 @@ export default function CheckoutPage() {
             <div className="checkout-card-header">
               <div className="card-header-title">
                 <span className="step-badge">1</span>
-                <h3>Select Delivery Address</h3>
+                <h3>Delivery Address</h3>
               </div>
               <button
                 type="button"
                 className="add-new-addr-btn"
                 onClick={() => setShowAddAddressModal(true)}
               >
-                + Add New Address
+                📍 Pin Location on Google Map
               </button>
             </div>
 
-            <div className="address-options-grid">
-              {addresses.map((addr) => {
-                const isSelected = (addr._id || addr.id) === selectedAddressId
-                return (
-                  <div
-                    key={addr._id || addr.id}
-                    className={`address-option-card ${isSelected ? 'selected' : ''}`}
-                    onClick={() => setSelectedAddressId(addr._id || addr.id)}
-                  >
-                    <div className="addr-tag-row">
-                      <span className={`addr-tag ${addr.tag?.toLowerCase() || 'home'}`}>
-                        {addr.tag === 'Work' ? '🏢 Work' : addr.tag === 'Other' ? '📍 Other' : '🏠 Home'}
-                      </span>
-                      {isSelected && <span className="selected-check">✓ Delivering Here</span>}
-                    </div>
-                    <h4 className="addr-recipient">{addr.fullName}</h4>
-                    <p className="addr-line">{addr.addressLine}, {addr.area}</p>
-                    <p className="addr-city">{addr.city} - {addr.pincode}</p>
-                    <p className="addr-phone">📞 {addr.phone}</p>
+            {/* Currently Active / Delivering To Highlight Banner */}
+            {activeAddress ? (
+              <div className="delivering-to-highlight-banner">
+                <div className="delivering-to-badge-col">
+                  <span className="delivering-to-pill">DELIVERING TO</span>
+                  <span className={`addr-tag ${(activeAddress.tag || activeAddress.label || 'home').toLowerCase()}`}>
+                    {activeAddress.tag === 'Work' || activeAddress.label === 'Work'
+                      ? '🏢 Work'
+                      : activeAddress.tag === 'College' || activeAddress.label === 'College'
+                      ? '🎓 College'
+                      : activeAddress.tag === 'Other' || activeAddress.label === 'Other'
+                      ? '📍 Other'
+                      : '🏠 Home'}
+                  </span>
+                </div>
+
+                <div className="delivering-to-info-col">
+                  <div className="delivering-to-title-row">
+                    <h4 className="delivering-recipient-name">{activeAddress.fullName || user?.name || 'Customer'}</h4>
+                    <span className="delivering-phone">📞 {activeAddress.phone}</span>
                   </div>
-                )
-              })}
-            </div>
+                  <p className="delivering-street-address">
+                    {activeAddress.houseNumber ? `${activeAddress.houseNumber}, ` : ''}
+                    {activeAddress.apartment ? `${activeAddress.apartment}, ` : ''}
+                    {activeAddress.addressLine || activeAddress.fullAddress}
+                  </p>
+                  {activeAddress.landmark && (
+                    <p className="delivering-landmark-text">Landmark: {activeAddress.landmark}</p>
+                  )}
+                  <p className="delivering-city-pincode">
+                    {activeAddress.area ? `${activeAddress.area}, ` : ''}{activeAddress.city} - {activeAddress.pincode}
+                  </p>
+
+                  <div className="delivering-meta-row">
+                    {activeAddress.coordinates?.lat && activeAddress.coordinates?.lng ? (
+                      <span className="gps-verified-tag">
+                        📍 GPS Pinned ({activeAddress.coordinates.lat.toFixed(4)}, {activeAddress.coordinates.lng.toFixed(4)})
+                        {calculatedDistanceKm !== null && ` • ~${calculatedDistanceKm} km from kitchen`}
+                      </span>
+                    ) : (
+                      <span className="gps-unverified-tag">📍 Standard Street Address</span>
+                    )}
+
+                    <button
+                      type="button"
+                      className="change-location-link-btn"
+                      onClick={() => setShowAddAddressModal(true)}
+                      title="Adjust pin or select another location on Google Maps"
+                    >
+                      ✏️ Change / Adjust on Map
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="no-address-alert-box">
+                <span className="alert-pin-icon">📍</span>
+                <div>
+                  <h4>No Delivery Address Selected</h4>
+                  <p>Please select your doorstep on Google Maps to continue with your checkout.</p>
+                </div>
+                <button
+                  type="button"
+                  className="pick-on-map-cta-btn"
+                  onClick={() => setShowAddAddressModal(true)}
+                >
+                  Choose on Google Maps →
+                </button>
+              </div>
+            )}
+
+            {/* Saved Address Selection Cards */}
+            {addresses.length > 0 && (
+              <div className="saved-addresses-subblock">
+                <div className="saved-addresses-subheading">
+                  <h5>Saved Addresses ({addresses.length})</h5>
+                  <span>Click any address to deliver here</span>
+                </div>
+
+                <div className="address-options-grid">
+                  {addresses.map((addr) => {
+                    const isSelected = (addr._id || addr.id) === selectedAddressId
+                    const label = addr.label || addr.tag || 'Home'
+                    return (
+                      <div
+                        key={addr._id || addr.id}
+                        className={`address-option-card ${isSelected ? 'selected' : ''}`}
+                        onClick={() => setSelectedAddressId(addr._id || addr.id)}
+                      >
+                        <div className="addr-tag-row">
+                          <span className={`addr-tag ${label.toLowerCase()}`}>
+                            {label === 'Work'
+                              ? '🏢 Work'
+                              : label === 'College'
+                              ? '🎓 College'
+                              : label === 'Other'
+                              ? '📍 Other'
+                              : '🏠 Home'}
+                          </span>
+                          {isSelected && <span className="selected-check">✓ Delivering Here</span>}
+                        </div>
+                        <h4 className="addr-recipient">{addr.fullName}</h4>
+                        <p className="addr-line">{addr.fullAddress || `${addr.addressLine}, ${addr.area}`}</p>
+                        <p className="addr-city">{addr.city} - {addr.pincode}</p>
+                        <p className="addr-phone">📞 {addr.phone}</p>
+                        {addr.coordinates?.lat && addr.coordinates?.lng && (
+                          <div className="card-gps-mini-badge">
+                            📍 GPS: {addr.coordinates.lat.toFixed(3)}, {addr.coordinates.lng.toFixed(3)}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </section>
 
           {/* SECTION 2: PAYMENT METHOD SELECTION */}
@@ -694,121 +854,13 @@ export default function CheckoutPage() {
         </aside>
       </div>
 
-      {/* Add New Address Modal */}
-      {showAddAddressModal && (
-        <div className="modal-backdrop">
-          <div className="modal-content address-modal">
-            <div className="modal-header">
-              <h3>Add New Delivery Address</h3>
-              <button
-                type="button"
-                className="close-modal-btn"
-                onClick={() => setShowAddAddressModal(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <form onSubmit={handleSaveNewAddress} className="address-modal-form">
-              <div className="form-group">
-                <label>Recipient Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Prasham Jain"
-                  value={newAddress.fullName}
-                  onChange={(e) => setNewAddress({ ...newAddress, fullName: e.target.value })}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Mobile Phone</label>
-                <input
-                  type="tel"
-                  required
-                  placeholder="10-digit mobile number"
-                  value={newAddress.phone}
-                  onChange={(e) => setNewAddress({ ...newAddress, phone: e.target.value })}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Address Tag</label>
-                <div className="tag-picker">
-                  {['Home', 'Work', 'Other'].map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      className={`tag-choice-btn ${newAddress.tag === t ? 'active' : ''}`}
-                      onClick={() => setNewAddress({ ...newAddress, tag: t })}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Flat / House No. / Building</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Flat 402, Sunshine Heights"
-                  value={newAddress.addressLine}
-                  onChange={(e) => setNewAddress({ ...newAddress, addressLine: e.target.value })}
-                />
-              </div>
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Locality / Area</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Bandra West"
-                    value={newAddress.area}
-                    onChange={(e) => setNewAddress({ ...newAddress, area: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>City</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Mumbai"
-                    value={newAddress.city}
-                    onChange={(e) => setNewAddress({ ...newAddress, city: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Postal Pincode</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="6-digit pincode e.g. 400050"
-                  maxLength={6}
-                  value={newAddress.pincode}
-                  onChange={(e) => setNewAddress({ ...newAddress, pincode: e.target.value })}
-                />
-              </div>
-
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="cancel-btn"
-                  onClick={() => setShowAddAddressModal(false)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="save-btn">
-                  Save & Deliver Here
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Interactive Google Maps Delivery Location Picker Modal */}
+      <DeliveryLocationPicker
+        isOpen={showAddAddressModal}
+        onClose={() => setShowAddAddressModal(false)}
+        onAddressSaved={handleAddressSavedFromMap}
+        initialLocation={activeAddress}
+      />
     </div>
   )
 }

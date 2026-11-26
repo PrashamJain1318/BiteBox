@@ -57,6 +57,39 @@ export const createSimulationSchedule = (placedAt = new Date(), customOptions = 
     placedAt.getTime() + totalDeliveryDurationSeconds * 1000
   );
 
+  const destLat =
+    typeof customOptions.destinationCoordinates?.lat === 'number'
+      ? customOptions.destinationCoordinates.lat
+      : DEFAULT_DEMO_ROUTE.destination.lat;
+  const destLng =
+    typeof customOptions.destinationCoordinates?.lng === 'number'
+      ? customOptions.destinationCoordinates.lng
+      : DEFAULT_DEMO_ROUTE.destination.lng;
+
+  const restLat = DEFAULT_DEMO_ROUTE.restaurant.lat;
+  const restLng = DEFAULT_DEMO_ROUTE.restaurant.lng;
+
+  // Generate realistic route waypoints connecting kitchen to selected customer destination
+  const waypoints =
+    typeof customOptions.destinationCoordinates?.lat === 'number'
+      ? [
+          [restLat, restLng],
+          [
+            Number((restLat * 0.75 + destLat * 0.25).toFixed(6)),
+            Number((restLng * 0.75 + destLng * 0.25).toFixed(6)),
+          ],
+          [
+            Number((restLat * 0.5 + destLat * 0.5).toFixed(6)),
+            Number((restLng * 0.5 + destLng * 0.5).toFixed(6)),
+          ],
+          [
+            Number((restLat * 0.25 + destLat * 0.75).toFixed(6)),
+            Number((restLng * 0.25 + destLng * 0.75).toFixed(6)),
+          ],
+          [destLat, destLng],
+        ]
+      : DEFAULT_DEMO_ROUTE.waypoints;
+
   return {
     assignmentDurationSeconds,
     totalDeliveryDurationSeconds,
@@ -65,15 +98,15 @@ export const createSimulationSchedule = (placedAt = new Date(), customOptions = 
     demoRoute: {
       restaurant: {
         name: customOptions.restaurantName || DEFAULT_DEMO_ROUTE.restaurant.name,
-        lat: DEFAULT_DEMO_ROUTE.restaurant.lat,
-        lng: DEFAULT_DEMO_ROUTE.restaurant.lng,
+        lat: restLat,
+        lng: restLng,
       },
       destination: {
         address: customOptions.destinationAddress || DEFAULT_DEMO_ROUTE.destination.address,
-        lat: DEFAULT_DEMO_ROUTE.destination.lat,
-        lng: DEFAULT_DEMO_ROUTE.destination.lng,
+        lat: destLat,
+        lng: destLng,
       },
-      waypoints: DEFAULT_DEMO_ROUTE.waypoints,
+      waypoints,
     },
   };
 };

@@ -47,12 +47,31 @@ const deliveryAddressSchema = new mongoose.Schema(
     },
     tag: {
       type: String,
-      enum: ['Home', 'Work', 'Other'],
+      enum: ['Home', 'Work', 'College', 'Other'],
+      default: 'Home',
+    },
+    label: {
+      type: String,
       default: 'Home',
     },
     addressLine: {
       type: String,
       required: [true, 'Please provide address line'],
+    },
+    fullAddress: {
+      type: String,
+    },
+    houseNumber: {
+      type: String,
+      default: '',
+    },
+    apartment: {
+      type: String,
+      default: '',
+    },
+    landmark: {
+      type: String,
+      default: '',
     },
     area: {
       type: String,
@@ -65,6 +84,14 @@ const deliveryAddressSchema = new mongoose.Schema(
     pincode: {
       type: String,
       required: [true, 'Please provide 6-digit postal code'],
+    },
+    placeId: {
+      type: String,
+      default: '',
+    },
+    coordinates: {
+      lat: { type: Number },
+      lng: { type: Number },
     },
   },
   { _id: false }

@@ -114,8 +114,19 @@ export const createOrder = async (req, res) => {
       }
     }
 
-    // 2. Compute final server-side validated pricing
-    const { sanitizedItems, pricing } = calculateOrderPricing(items, appliedCoupon);
+    // Clean and sanitize delivery address (removes client _id strings)
+    const hasValidCoords =
+      deliveryAddress.coordinates &&
+      typeof deliveryAddress.coordinates.lat === 'number' &&
+      typeof deliveryAddress.coordinates.lng === 'number' &&
+      !Number.isNaN(deliveryAddress.coordinates.lat) &&
+      !Number.isNaN(deliveryAddress.coordinates.lng);
+
+    // 2. Compute final server-side validated pricing (with distance-based delivery fee if coords provided)
+    const { sanitizedItems, pricing } = calculateOrderPricing(items, appliedCoupon, {
+      customerCoords: hasValidCoords ? deliveryAddress.coordinates : undefined,
+      restaurantCoords: { lat: 19.0596, lng: 72.8295 },
+    });
 
     if (sanitizedItems.length === 0 || pricing.grandTotal < 0) {
       return res.status(400).json({
@@ -127,21 +138,39 @@ export const createOrder = async (req, res) => {
     const orderId = generateOrderId();
     const userId = (req.user && (req.user._id || req.user.id)) || req.body.userId || `guest_${Date.now()}`;
 
-    // Clean and sanitize delivery address (removes client _id strings)
     const sanitizedAddress = {
       fullName: String(deliveryAddress.fullName || '').trim(),
       phone: String(deliveryAddress.phone || '').trim(),
-      tag: ['Home', 'Work', 'Other'].includes(deliveryAddress.tag) ? deliveryAddress.tag : 'Home',
+      tag: ['Home', 'Work', 'College', 'Other'].includes(deliveryAddress.tag)
+        ? deliveryAddress.tag
+        : 'Home',
+      label: String(deliveryAddress.label || deliveryAddress.tag || 'Home').trim(),
       addressLine: String(deliveryAddress.addressLine || '').trim(),
+      fullAddress: String(
+        deliveryAddress.fullAddress || deliveryAddress.addressLine || ''
+      ).trim(),
+      houseNumber: String(deliveryAddress.houseNumber || '').trim(),
+      apartment: String(deliveryAddress.apartment || '').trim(),
+      landmark: String(deliveryAddress.landmark || '').trim(),
       area: String(deliveryAddress.area || '').trim(),
       city: String(deliveryAddress.city || 'Mumbai').trim(),
       pincode: String(deliveryAddress.pincode || '').trim(),
+      placeId: String(deliveryAddress.placeId || '').trim(),
+      coordinates: hasValidCoords
+        ? {
+            lat: Number(deliveryAddress.coordinates.lat),
+            lng: Number(deliveryAddress.coordinates.lng),
+          }
+        : undefined,
     };
 
     const placedAt = new Date();
     const simSchedule = createSimulationSchedule(placedAt, {
       restaurantName: sanitizedItems[0]?.restaurantName || 'BiteBox Partner Kitchen',
-      destinationAddress: `${sanitizedAddress.addressLine}, ${sanitizedAddress.area}`,
+      destinationAddress:
+        sanitizedAddress.fullAddress ||
+        `${sanitizedAddress.addressLine}, ${sanitizedAddress.area}`,
+      destinationCoordinates: sanitizedAddress.coordinates,
     });
 
     // 3. For Cash on Delivery (COD)

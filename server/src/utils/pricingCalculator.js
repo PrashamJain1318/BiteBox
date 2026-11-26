@@ -16,14 +16,30 @@ try {
   console.warn('⚠️ Could not load canonical products.json, using payload fallback:', err.message);
 }
 
+// Helper: Calculate Haversine distance in kilometers
+export function calculateDistanceInKm(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth's radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c * 10) / 10;
+}
+
 /**
  * Calculates and validates server-side pricing for an order or cart items.
  *
  * @param {Array} items - List of items in the cart [{ productId, quantity, name, price, img, ... }]
  * @param {Object} [coupon] - Coupon object if applied { code, discountType, discountValue, maxDiscount, ... }
- * @returns {Object} { sanitizedItems, pricing: { itemTotal, packagingCharges, deliveryFee, taxes, discount, grandTotal } }
+ * @param {Object} [options] - Options including customerCoords and restaurantCoords
+ * @returns {Object} { sanitizedItems, pricing: { itemTotal, packagingCharges, deliveryFee, taxes, discount, grandTotal, distanceKm } }
  */
-export function calculateOrderPricing(items = [], coupon = null) {
+export function calculateOrderPricing(items = [], coupon = null, options = {}) {
   if (!Array.isArray(items) || items.length === 0) {
     return {
       sanitizedItems: [],
@@ -34,6 +50,7 @@ export function calculateOrderPricing(items = [], coupon = null) {
         taxes: 0,
         discount: 0,
         grandTotal: 0,
+        distanceKm: null,
       },
     };
   }
@@ -62,9 +79,34 @@ export function calculateOrderPricing(items = [], coupon = null) {
     };
   });
 
-  // Base charges
+  // Base charges & Configurable distance-based delivery fee
   const packagingCharges = itemTotal > 0 ? 25 : 0;
+  let distanceKm = null;
   let deliveryFee = itemTotal >= 500 || itemTotal === 0 ? 0 : 40;
+
+  if (
+    deliveryFee > 0 &&
+    options?.customerCoords?.lat &&
+    options?.customerCoords?.lng &&
+    options?.restaurantCoords?.lat &&
+    options?.restaurantCoords?.lng
+  ) {
+    try {
+      distanceKm = calculateDistanceInKm(
+        options.restaurantCoords.lat,
+        options.restaurantCoords.lng,
+        options.customerCoords.lat,
+        options.customerCoords.lng
+      );
+      // Base fee ₹40 for up to 4 km, then ₹10 per additional km, capped at ₹120
+      if (distanceKm > 4) {
+        deliveryFee = Math.min(120, 40 + Math.round((distanceKm - 4) * 10));
+      }
+    } catch {
+      deliveryFee = 40;
+    }
+  }
+
   const taxes = Math.round(itemTotal * 0.05); // 5% GST
 
   let discount = 0;
@@ -102,6 +144,7 @@ export function calculateOrderPricing(items = [], coupon = null) {
       taxes,
       discount,
       grandTotal,
+      distanceKm,
     },
   };
 }

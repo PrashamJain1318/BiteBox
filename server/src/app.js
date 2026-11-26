@@ -16,6 +16,7 @@ import authRoutes from './routes/authRoutes.js';
 import couponRoutes from './routes/couponRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
+import addressRoutes from './routes/addressRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 
 dotenv.config();
@@ -90,6 +91,10 @@ app.use('/api/auth', authRoutes);
 // Coupon Discount System routes
 app.use('/api/v1/coupons', couponRoutes);
 app.use('/api/coupons', couponRoutes); // Alias for compatibility
+
+// Address Management routes
+app.use('/api/v1/addresses', addressRoutes);
+app.use('/api/addresses', addressRoutes); // Alias for compatibility
 
 // Order Management routes
 app.use('/api/v1/orders', orderRoutes);
