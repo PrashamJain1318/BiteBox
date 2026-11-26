@@ -1,8 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
 import { apiFetch } from '../api/apiConfig'
+import LiveTrackingMap from './LiveTrackingMap'
 import '../style.css'
 
 export default function TrackOrderPage() {
@@ -16,14 +15,6 @@ export default function TrackOrderPage() {
   const [remainingSeconds, setRemainingSeconds] = useState(0)
   const [isDemoAdvancing, setIsDemoAdvancing] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
-
-  // Map refs
-  const mapContainerRef = useRef(null)
-  const mapInstanceRef = useRef(null)
-  const routeLineRef = useRef(null)
-  const restaurantMarkerRef = useRef(null)
-  const destinationMarkerRef = useRef(null)
-  const riderMarkerRef = useRef(null)
 
   // Status mapping to 5-step stepper
   const getStepNumber = (status) => {
@@ -165,173 +156,7 @@ export default function TrackOrderPage() {
     }
   }
 
-  // Initialize Leaflet Map
-  useEffect(() => {
-    if (!orderId || !mapContainerRef.current) return
-    if (mapInstanceRef.current) return // Already initialized
 
-    try {
-      const defaultCenter = [12.9315, 77.632]
-      const map = L.map(mapContainerRef.current, {
-        center: defaultCenter,
-        zoom: 14,
-        zoomControl: true,
-        scrollWheelZoom: false,
-      })
-
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 18,
-      }).addTo(map)
-
-      mapInstanceRef.current = map
-
-      // Invalidate size after DOM settles
-      setTimeout(() => {
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.invalidateSize()
-        }
-      }, 300)
-    } catch (err) {
-      console.warn('Leaflet map initialization warning:', err.message)
-    }
-
-    return () => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove()
-        mapInstanceRef.current = null
-        routeLineRef.current = null
-        restaurantMarkerRef.current = null
-        destinationMarkerRef.current = null
-        riderMarkerRef.current = null
-      }
-    }
-  }, [orderId])
-
-  // Update Map Markers & Route when tracking telemetry updates
-  useEffect(() => {
-    const map = mapInstanceRef.current
-    if (!map || !tracking) return
-
-    const waypoints = tracking.route || [
-      [12.9352, 77.6245],
-      [12.9338, 77.628],
-      [12.9315, 77.632],
-      [12.9298, 77.6355],
-      [12.9279, 77.6385],
-    ]
-
-    const restaurant = tracking.restaurant || {
-      lat: waypoints[0][0],
-      lng: waypoints[0][1],
-      name: 'BiteBox Partner Kitchen',
-    }
-    const destination = tracking.destination || {
-      lat: waypoints[waypoints.length - 1][0],
-      lng: waypoints[waypoints.length - 1][1],
-      address: 'Delivery Destination',
-    }
-    const riderLoc = tracking.currentLocation || {
-      lat: waypoints[0][0],
-      lng: waypoints[0][1],
-    }
-    const partnerName = tracking.deliveryPartner
-      ? tracking.deliveryPartner.name
-      : 'BiteBox Valet Rider'
-
-    // 1. Draw / Update Route Polyline
-    if (!routeLineRef.current) {
-      routeLineRef.current = L.polyline(waypoints, {
-        color: '#ff5200',
-        weight: 5,
-        opacity: 0.85,
-        lineCap: 'round',
-        lineJoin: 'round',
-      }).addTo(map)
-
-      // Fit map bounds to encompass full route
-      const bounds = L.latLngBounds(waypoints)
-      map.fitBounds(bounds, { padding: [40, 40] })
-    } else {
-      routeLineRef.current.setLatLngs(waypoints)
-    }
-
-    // 2. Restaurant Marker
-    if (!restaurantMarkerRef.current) {
-      const kitchenIcon = L.divIcon({
-        className: 'bitebox-map-marker kitchen-pin',
-        html: `<div class="pin-bubble orange"><span>🍴</span></div><div class="pin-label">Kitchen</div>`,
-        iconSize: [42, 54],
-        iconAnchor: [21, 54],
-        popupAnchor: [0, -50],
-      })
-      restaurantMarkerRef.current = L.marker([restaurant.lat, restaurant.lng], {
-        icon: kitchenIcon,
-      })
-        .addTo(map)
-        .bindPopup(`<strong>${restaurant.name}</strong><br/>Order Prepared Here`)
-    }
-
-    // 3. Destination Marker
-    if (!destinationMarkerRef.current) {
-      const destIcon = L.divIcon({
-        className: 'bitebox-map-marker destination-pin',
-        html: `<div class="pin-bubble green"><span>🏠</span></div><div class="pin-label">You</div>`,
-        iconSize: [42, 54],
-        iconAnchor: [21, 54],
-        popupAnchor: [0, -50],
-      })
-      destinationMarkerRef.current = L.marker([destination.lat, destination.lng], {
-        icon: destIcon,
-      })
-        .addTo(map)
-        .bindPopup(`<strong>Delivery Destination</strong><br/>${destination.address}`)
-    }
-
-    // 4. Rider Marker
-    const riderHtml = `
-      <div class="rider-pin-wrap">
-        <div class="rider-radar-wave"></div>
-        <div class="pin-bubble rider"><span>🛵</span></div>
-      </div>
-      <div class="pin-label rider-name">${partnerName.split(' ')[0]}</div>
-    `
-    const riderIcon = L.divIcon({
-      className: 'bitebox-map-marker rider-pin',
-      html: riderHtml,
-      iconSize: [46, 56],
-      iconAnchor: [23, 56],
-      popupAnchor: [0, -50],
-    })
-
-    if (!riderMarkerRef.current) {
-      riderMarkerRef.current = L.marker([riderLoc.lat, riderLoc.lng], {
-        icon: riderIcon,
-        zIndexOffset: 1000,
-      })
-        .addTo(map)
-        .bindPopup(
-          `<strong>${partnerName}</strong><br/>🛵 Status: ${tracking.orderStatus.replace('_', ' ').toUpperCase()}<br/><small>Simulated Live Movement</small>`
-        )
-    } else {
-      riderMarkerRef.current.setLatLng([riderLoc.lat, riderLoc.lng])
-      riderMarkerRef.current.setIcon(riderIcon)
-      riderMarkerRef.current.setPopupContent(
-        `<strong>${partnerName}</strong><br/>🛵 Status: ${tracking.orderStatus.replace('_', ' ').toUpperCase()}<br/><small>Simulated Live Movement</small>`
-      )
-    }
-  }, [tracking])
-
-  const handleRecenterMap = () => {
-    if (!mapInstanceRef.current || !tracking) return
-    const riderLoc = tracking.currentLocation
-    if (riderLoc) {
-      mapInstanceRef.current.setView([riderLoc.lat, riderLoc.lng], 15, {
-        animate: true,
-      })
-    }
-  }
 
   if (loading) {
     return (
@@ -460,30 +285,20 @@ export default function TrackOrderPage() {
           })}
         </div>
 
-        {/* Interactive Demo Map Section */}
+        {/* Interactive Live Courier Route & GPS Telemetry Map */}
         <div className="demo-map-section">
           <div className="demo-map-header">
             <div className="demo-map-title-wrap">
               <span className="map-badge-icon">🗺️</span>
               <h3>Live Courier Route & GPS Telemetry</h3>
             </div>
-            <button
-              type="button"
-              className="map-recenter-btn"
-              onClick={handleRecenterMap}
-              title="Recenter on delivery partner"
-            >
-              📍 Center on Rider
-            </button>
           </div>
 
-          <div className="demo-map-frame">
-            <div
-              id="demo-tracking-map"
-              ref={mapContainerRef}
-              className="demo-map-canvas"
-            />
-          </div>
+          <LiveTrackingMap
+            tracking={tracking}
+            activeStep={activeStep}
+            orderId={orderId}
+          />
 
           <div className="demo-map-disclaimer">
             <span>ℹ️</span>
