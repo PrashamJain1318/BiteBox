@@ -2,11 +2,18 @@ import { useState, useEffect } from 'react';
 
 let googleMapsPromise = null;
 
+// Official BiteBox Google Maps API Key
+export const DEFAULT_GOOGLE_MAPS_KEY =
+  'AIzaSyCahX-O_-gLrta5aeNzRCSVq30BqmSwKJ0';
+
 /**
  * Dynamically load Google Maps JavaScript API with Places and Geometry libraries
  */
 export function loadGoogleMaps(apiKey) {
-  const key = apiKey || import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  const key =
+    apiKey ||
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GOOGLE_MAPS_API_KEY) ||
+    DEFAULT_GOOGLE_MAPS_KEY;
 
   if (typeof window !== 'undefined' && window.google && window.google.maps) {
     return Promise.resolve(window.google.maps);
