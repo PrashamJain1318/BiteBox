@@ -42,31 +42,53 @@ export default function AddressAutocomplete({
           const fullAddress = place.formatted_address || place.name || '';
           const placeId = place.place_id || '';
 
-          // Extract locality / area, city, pincode
+          // Extract locality / area, city, state, pincode
           let area = '';
-          let city = 'Mumbai';
+          let city = '';
+          let state = 'Maharashtra';
           let pincode = '';
+          let streetNumber = '';
+          let route = '';
 
           if (Array.isArray(place.address_components)) {
             place.address_components.forEach((comp) => {
-              if (comp.types.includes('sublocality_level_1') || comp.types.includes('sublocality')) {
-                area = comp.long_name;
+              if (
+                comp.types.includes('sublocality_level_1') ||
+                comp.types.includes('sublocality') ||
+                comp.types.includes('sublocality_level_2') ||
+                comp.types.includes('neighborhood')
+              ) {
+                if (!area) area = comp.long_name;
               } else if (comp.types.includes('locality')) {
                 city = comp.long_name;
+              } else if (comp.types.includes('administrative_area_level_2') && !city) {
+                city = comp.long_name;
+              } else if (comp.types.includes('administrative_area_level_1')) {
+                state = comp.long_name;
               } else if (comp.types.includes('postal_code')) {
                 pincode = comp.long_name;
+              } else if (comp.types.includes('street_number')) {
+                streetNumber = comp.long_name;
+              } else if (comp.types.includes('route')) {
+                route = comp.long_name;
               }
             });
           }
+
+          if (!city) city = 'Mumbai';
+          if (!area) area = route || place.name || '';
 
           setInputValue(fullAddress);
           onPlaceSelect({
             fullAddress,
             placeId,
             coordinates: { lat, lng },
-            area: area || place.name || '',
+            area,
             city,
+            state,
             pincode,
+            streetNumber,
+            route,
           });
         });
 

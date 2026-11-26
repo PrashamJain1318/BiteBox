@@ -7137,6 +7137,21 @@ img {
   box-shadow: 0 0 0 3px rgba(252, 128, 25, 0.15);
 }
 
+.form-input.input-error,
+.form-textarea.input-error {
+  border-color: #ef4444 !important;
+  background-color: #fef2f2 !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
+}
+
+.field-error-msg {
+  display: block;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #dc2626;
+  margin-top: 4px;
+}
+
 .address-label-pills {
   display: flex;
   gap: 10px;

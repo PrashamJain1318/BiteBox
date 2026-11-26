@@ -41,6 +41,9 @@ const deliveryAddressSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Please provide delivery recipient name'],
     },
+    recipientName: {
+      type: String,
+    },
     phone: {
       type: String,
       required: [true, 'Please provide delivery phone number'],
@@ -57,6 +60,9 @@ const deliveryAddressSchema = new mongoose.Schema(
     addressLine: {
       type: String,
       required: [true, 'Please provide address line'],
+    },
+    address: {
+      type: String,
     },
     fullAddress: {
       type: String,
@@ -80,6 +86,10 @@ const deliveryAddressSchema = new mongoose.Schema(
     city: {
       type: String,
       required: [true, 'Please provide city'],
+    },
+    state: {
+      type: String,
+      default: 'Maharashtra',
     },
     pincode: {
       type: String,

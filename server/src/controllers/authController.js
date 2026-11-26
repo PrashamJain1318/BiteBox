@@ -578,23 +578,112 @@ export const getAddresses = async (req, res, next) => {
  */
 export const addAddress = async (req, res, next) => {
   try {
-    const { fullName, phone, tag, addressLine, area, city, pincode, isDefault } = req.body;
+    const {
+      fullName,
+      recipientName,
+      phone,
+      tag,
+      label,
+      addressLine,
+      address: altAddress,
+      houseNumber,
+      apartment,
+      landmark,
+      area,
+      city,
+      state,
+      pincode,
+      fullAddress,
+      placeId,
+      coordinates,
+      isDefault,
+    } = req.body;
 
-    if (!fullName || !phone || !addressLine || !area || !city || !pincode) {
+    const resolvedName = String(fullName || recipientName || '').trim();
+    if (!resolvedName) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide recipient name, phone, address line, area, city, and pincode.',
+        message: 'Please provide recipient name.',
+        field: 'recipientName',
       });
     }
 
+    const cleanPhone = String(phone || '').trim().replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid 10-digit contact phone number.',
+        field: 'phone',
+      });
+    }
+
+    const resolvedAddressLine = String(
+      addressLine || altAddress || houseNumber || fullAddress || ''
+    ).trim();
+    if (!resolvedAddressLine) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide street / house delivery address.',
+        field: 'address',
+      });
+    }
+
+    const resolvedArea = String(area || '').trim();
+    if (!resolvedArea && !fullAddress) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide locality / delivery area.',
+        field: 'area',
+      });
+    }
+
+    const resolvedCity = String(city || 'Mumbai').trim();
+    if (!resolvedCity) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide delivery city.',
+        field: 'city',
+      });
+    }
+
+    let resolvedPin = String(pincode || '').trim().replace(/\D/g, '');
+    if (!resolvedPin && fullAddress) {
+      const match = fullAddress.match(/\b\d{6}\b/);
+      if (match) resolvedPin = match[0];
+    }
+    if (!resolvedPin || resolvedPin.length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid 6-digit postal PIN code.',
+        field: 'pincode',
+      });
+    }
+
+    const chosenTag = tag || label || 'Home';
+    const validTags = ['Home', 'Work', 'College', 'Other'];
+    const sanitizedTag = validTags.includes(chosenTag) ? chosenTag : 'Home';
+
     const newAddress = {
-      fullName,
-      phone,
-      tag: tag || 'Home',
-      addressLine,
-      area,
-      city,
-      pincode,
+      fullName: resolvedName,
+      recipientName: resolvedName,
+      phone: cleanPhone,
+      tag: sanitizedTag,
+      label: sanitizedTag,
+      addressLine: resolvedAddressLine,
+      address: resolvedAddressLine,
+      fullAddress: fullAddress || `${resolvedAddressLine}, ${resolvedArea || 'Locality'}, ${resolvedCity} - ${resolvedPin}`,
+      houseNumber: String(houseNumber || '').trim(),
+      apartment: String(apartment || '').trim(),
+      landmark: String(landmark || '').trim(),
+      area: resolvedArea || 'Locality',
+      city: resolvedCity,
+      state: String(state || 'Maharashtra').trim(),
+      pincode: resolvedPin,
+      placeId: String(placeId || '').trim(),
+      coordinates:
+        coordinates && typeof coordinates.lat === 'number' && typeof coordinates.lng === 'number'
+          ? { lat: Number(coordinates.lat), lng: Number(coordinates.lng) }
+          : undefined,
       isDefault: Boolean(isDefault),
     };
 

@@ -49,26 +49,43 @@ export default function DeliveryLocationPicker({
             if (status === 'OK' && results && results[0]) {
               const res = results[0];
               let area = '';
-              let city = 'Mumbai';
+              let city = '';
+              let state = 'Maharashtra';
               let pincode = '';
+              let route = '';
 
               if (Array.isArray(res.address_components)) {
                 res.address_components.forEach((c) => {
-                  if (c.types.includes('sublocality_level_1') || c.types.includes('sublocality')) {
-                    area = c.long_name;
+                  if (
+                    c.types.includes('sublocality_level_1') ||
+                    c.types.includes('sublocality') ||
+                    c.types.includes('sublocality_level_2') ||
+                    c.types.includes('neighborhood')
+                  ) {
+                    if (!area) area = c.long_name;
                   } else if (c.types.includes('locality')) {
                     city = c.long_name;
+                  } else if (c.types.includes('administrative_area_level_2') && !city) {
+                    city = c.long_name;
+                  } else if (c.types.includes('administrative_area_level_1')) {
+                    state = c.long_name;
                   } else if (c.types.includes('postal_code')) {
                     pincode = c.long_name;
+                  } else if (c.types.includes('route')) {
+                    route = c.long_name;
                   }
                 });
               }
 
+              if (!city) city = 'Mumbai';
+              if (!area) area = route || city;
+
               setSelectedAddress({
                 fullAddress: res.formatted_address,
                 placeId: res.place_id || '',
-                area: area || city,
+                area,
                 city,
+                state,
                 pincode,
                 coordinates: coords,
               });
@@ -261,6 +278,7 @@ export default function DeliveryLocationPicker({
                 ...selectedAddress,
                 coordinates: markerCoords,
               }}
+              initialValues={initialLocation || {}}
               onSave={handleSaveAddress}
               onBackToMap={() => setStep(1)}
               isSaving={isSaving}

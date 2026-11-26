@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function DeliveryAddressForm({
   selectedLocation = {},
@@ -8,17 +8,34 @@ export default function DeliveryAddressForm({
   isSaving = false,
 }) {
   const [formData, setFormData] = useState({
-    fullName: initialValues.fullName || '',
+    fullName: initialValues.fullName || initialValues.recipientName || '',
     phone: initialValues.phone || '',
     houseNumber: initialValues.houseNumber || '',
     apartment: initialValues.apartment || '',
+    area: initialValues.area || selectedLocation.area || '',
+    city: initialValues.city || selectedLocation.city || 'Mumbai',
+    state: initialValues.state || selectedLocation.state || 'Maharashtra',
+    pincode: initialValues.pincode || selectedLocation.pincode || '',
     landmark: initialValues.landmark || '',
-    label: initialValues.label || 'Home',
+    label: initialValues.label || initialValues.tag || 'Home',
     fullAddress: initialValues.fullAddress || selectedLocation.fullAddress || '',
     isDefault: initialValues.isDefault !== undefined ? initialValues.isDefault : true,
   });
 
   const [validationError, setValidationError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  // Sync with selected location updates from Google Map or Autocomplete
+  useEffect(() => {
+    setFormData((prev) => ({
+      ...prev,
+      area: prev.area || selectedLocation.area || '',
+      city: prev.city || selectedLocation.city || 'Mumbai',
+      state: prev.state || selectedLocation.state || 'Maharashtra',
+      pincode: prev.pincode || selectedLocation.pincode || '',
+      fullAddress: prev.fullAddress || selectedLocation.fullAddress || '',
+    }));
+  }, [selectedLocation]);
 
   const addressLabels = [
     { id: 'Home', icon: '🏠', title: 'Home' },
@@ -27,24 +44,62 @@ export default function DeliveryAddressForm({
     { id: 'Other', icon: '📍', title: 'Other' },
   ];
 
+  const handleInputChange = (field, value) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    // Clear specific field error as user types
+    if (fieldErrors[field]) {
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+    if (validationError) {
+      setValidationError('');
+    }
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     setValidationError('');
+    const errors = {};
 
+    // 1. Recipient Name validation
     if (!formData.fullName.trim()) {
-      setValidationError('Please provide the recipient name.');
-      return;
+      errors.fullName = 'Please enter recipient name.';
     }
-    if (!formData.phone.trim() || formData.phone.trim().length < 10) {
-      setValidationError('Please provide a valid 10-digit contact phone number.');
-      return;
+
+    // 2. Phone validation (10 digits)
+    const cleanPhone = formData.phone.trim().replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      errors.phone = 'Please enter a valid 10-digit mobile number.';
     }
+
+    // 3. Flat / House number validation
     if (!formData.houseNumber.trim()) {
-      setValidationError('Please provide your flat, house, or floor number.');
-      return;
+      errors.houseNumber = 'Please enter flat, house, or floor number.';
     }
-    if (!formData.fullAddress.trim()) {
-      setValidationError('Delivery address line is required.');
+
+    // 4. Locality / Area validation
+    if (!formData.area.trim()) {
+      errors.area = 'Please enter delivery area / locality.';
+    }
+
+    // 5. City validation
+    if (!formData.city.trim()) {
+      errors.city = 'Please enter city.';
+    }
+
+    // 6. PIN code validation (6 digits)
+    const cleanPincode = formData.pincode.trim().replace(/\D/g, '');
+    if (!cleanPincode || cleanPincode.length !== 6) {
+      errors.pincode = 'Please enter a valid 6-digit Indian PIN code.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      const firstErrorMessage = Object.values(errors)[0];
+      setValidationError(firstErrorMessage);
       return;
     }
 
@@ -53,21 +108,30 @@ export default function DeliveryAddressForm({
       lng: 72.8362,
     };
 
+    const streetAddress = `${formData.houseNumber.trim()}${
+      formData.apartment.trim() ? `, ${formData.apartment.trim()}` : ''
+    }`.trim();
+
+    const formattedFull =
+      formData.fullAddress.trim() ||
+      `${streetAddress}, ${formData.area.trim()}, ${formData.city.trim()} - ${cleanPincode}`;
+
     onSave({
       fullName: formData.fullName.trim(),
-      phone: formData.phone.trim(),
+      recipientName: formData.fullName.trim(),
+      phone: cleanPhone,
       label: formData.label,
       tag: formData.label,
       houseNumber: formData.houseNumber.trim(),
       apartment: formData.apartment.trim(),
       landmark: formData.landmark.trim(),
-      addressLine: `${formData.houseNumber.trim()}${
-        formData.apartment.trim() ? `, ${formData.apartment.trim()}` : ''
-      }`,
-      fullAddress: formData.fullAddress.trim(),
-      area: selectedLocation.area || 'Locality',
-      city: selectedLocation.city || 'Mumbai',
-      pincode: selectedLocation.pincode || '400050',
+      addressLine: streetAddress,
+      address: streetAddress,
+      fullAddress: formattedFull,
+      area: formData.area.trim(),
+      city: formData.city.trim(),
+      state: formData.state.trim() || 'Maharashtra',
+      pincode: cleanPincode,
       placeId: selectedLocation.placeId || '',
       coordinates,
       isDefault: formData.isDefault,
@@ -75,7 +139,7 @@ export default function DeliveryAddressForm({
   };
 
   return (
-    <form className="delivery-address-form" onSubmit={handleSubmit}>
+    <form className="delivery-address-form" onSubmit={handleSubmit} noValidate>
       <div className="address-form-header">
         <button
           type="button"
@@ -109,7 +173,7 @@ export default function DeliveryAddressForm({
         </div>
       )}
 
-      {/* Contact Details */}
+      {/* Row 1: Contact Details */}
       <div className="form-row-two-col">
         <div className="form-group">
           <label htmlFor="addr-fullname">
@@ -118,12 +182,15 @@ export default function DeliveryAddressForm({
           <input
             id="addr-fullname"
             type="text"
-            className="form-input"
+            className={`form-input ${fieldErrors.fullName ? 'input-error' : ''}`}
             placeholder="e.g. Prasham Jain"
             value={formData.fullName}
-            onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+            onChange={(e) => handleInputChange('fullName', e.target.value)}
             required
           />
+          {fieldErrors.fullName && (
+            <span className="field-error-msg">{fieldErrors.fullName}</span>
+          )}
         </div>
 
         <div className="form-group">
@@ -133,17 +200,20 @@ export default function DeliveryAddressForm({
           <input
             id="addr-phone"
             type="tel"
-            className="form-input"
+            className={`form-input ${fieldErrors.phone ? 'input-error' : ''}`}
             placeholder="e.g. 9876543210"
-            maxLength={13}
+            maxLength={10}
             value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            onChange={(e) => handleInputChange('phone', e.target.value)}
             required
           />
+          {fieldErrors.phone && (
+            <span className="field-error-msg">{fieldErrors.phone}</span>
+          )}
         </div>
       </div>
 
-      {/* Flat & Society */}
+      {/* Row 2: Flat & Society */}
       <div className="form-row-two-col">
         <div className="form-group">
           <label htmlFor="addr-house">
@@ -152,12 +222,15 @@ export default function DeliveryAddressForm({
           <input
             id="addr-house"
             type="text"
-            className="form-input"
+            className={`form-input ${fieldErrors.houseNumber ? 'input-error' : ''}`}
             placeholder="e.g. Flat 402, 4th Floor"
             value={formData.houseNumber}
-            onChange={(e) => setFormData({ ...formData, houseNumber: e.target.value })}
+            onChange={(e) => handleInputChange('houseNumber', e.target.value)}
             required
           />
+          {fieldErrors.houseNumber && (
+            <span className="field-error-msg">{fieldErrors.houseNumber}</span>
+          )}
         </div>
 
         <div className="form-group">
@@ -168,12 +241,85 @@ export default function DeliveryAddressForm({
             className="form-input"
             placeholder="e.g. Sunshine Heights"
             value={formData.apartment}
-            onChange={(e) => setFormData({ ...formData, apartment: e.target.value })}
+            onChange={(e) => handleInputChange('apartment', e.target.value)}
           />
         </div>
       </div>
 
-      {/* Landmark & Full Street */}
+      {/* Row 3: Area / Locality & 6-Digit PIN Code */}
+      <div className="form-row-two-col">
+        <div className="form-group">
+          <label htmlFor="addr-area">
+            Delivery Area / Locality <span className="req">*</span>
+          </label>
+          <input
+            id="addr-area"
+            type="text"
+            className={`form-input ${fieldErrors.area ? 'input-error' : ''}`}
+            placeholder="e.g. Bandra West, Linking Road"
+            value={formData.area}
+            onChange={(e) => handleInputChange('area', e.target.value)}
+            required
+          />
+          {fieldErrors.area && (
+            <span className="field-error-msg">{fieldErrors.area}</span>
+          )}
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="addr-pincode">
+            6-Digit Postal PIN Code <span className="req">*</span>
+          </label>
+          <input
+            id="addr-pincode"
+            type="text"
+            className={`form-input ${fieldErrors.pincode ? 'input-error' : ''}`}
+            placeholder="e.g. 400050"
+            maxLength={6}
+            value={formData.pincode}
+            onChange={(e) => handleInputChange('pincode', e.target.value)}
+            required
+          />
+          {fieldErrors.pincode && (
+            <span className="field-error-msg">{fieldErrors.pincode}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Row 4: City & State */}
+      <div className="form-row-two-col">
+        <div className="form-group">
+          <label htmlFor="addr-city">
+            City <span className="req">*</span>
+          </label>
+          <input
+            id="addr-city"
+            type="text"
+            className={`form-input ${fieldErrors.city ? 'input-error' : ''}`}
+            placeholder="e.g. Mumbai"
+            value={formData.city}
+            onChange={(e) => handleInputChange('city', e.target.value)}
+            required
+          />
+          {fieldErrors.city && (
+            <span className="field-error-msg">{fieldErrors.city}</span>
+          )}
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="addr-state">State</label>
+          <input
+            id="addr-state"
+            type="text"
+            className="form-input"
+            placeholder="e.g. Maharashtra"
+            value={formData.state}
+            onChange={(e) => handleInputChange('state', e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Landmark */}
       <div className="form-group">
         <label htmlFor="addr-landmark">Nearby Landmark (Optional)</label>
         <input
@@ -182,20 +328,20 @@ export default function DeliveryAddressForm({
           className="form-input"
           placeholder="e.g. Opposite National College, Next to ICICI ATM"
           value={formData.landmark}
-          onChange={(e) => setFormData({ ...formData, landmark: e.target.value })}
+          onChange={(e) => handleInputChange('landmark', e.target.value)}
         />
       </div>
 
+      {/* Full Street Address Line */}
       <div className="form-group">
-        <label htmlFor="addr-full">Full Street Address & Area</label>
+        <label htmlFor="addr-full">Full Street Address (Auto-filled / Editable)</label>
         <textarea
           id="addr-full"
           className="form-textarea"
           rows={2}
           value={formData.fullAddress}
-          onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
+          onChange={(e) => handleInputChange('fullAddress', e.target.value)}
           placeholder="Complete street address details"
-          required
         />
       </div>
 
@@ -208,7 +354,7 @@ export default function DeliveryAddressForm({
               key={lbl.id}
               type="button"
               className={`address-pill-btn ${formData.label === lbl.id ? 'active' : ''}`}
-              onClick={() => setFormData({ ...formData, label: lbl.id })}
+              onClick={() => handleInputChange('label', lbl.id)}
             >
               <span>{lbl.icon}</span>
               <span>{lbl.title}</span>
@@ -223,7 +369,7 @@ export default function DeliveryAddressForm({
           <input
             type="checkbox"
             checked={formData.isDefault}
-            onChange={(e) => setFormData({ ...formData, isDefault: e.target.checked })}
+            onChange={(e) => handleInputChange('isDefault', e.target.checked)}
           />
           <span>Make this my primary default delivery address</span>
         </label>

@@ -14,6 +14,91 @@ const getUserId = (req) => {
 };
 
 /**
+ * Normalize and sanitize an address object so frontend and backend field names agree
+ */
+export const normalizeAddress = (raw, fallbackUser = null) => {
+  if (!raw) return null;
+  const fullName = String(
+    raw.fullName || raw.recipientName || fallbackUser?.name || 'Customer'
+  ).trim();
+  const phone = String(raw.phone || '').trim();
+  const label = raw.label || raw.tag || 'Home';
+  const tag = ['Home', 'Work', 'College', 'Other'].includes(label) ? label : 'Home';
+  const houseNumber = String(raw.houseNumber || '').trim();
+  const apartment = String(raw.apartment || '').trim();
+  const landmark = String(raw.landmark || '').trim();
+
+  let addressLine = String(raw.addressLine || raw.address || '').trim();
+  if (!addressLine) {
+    if (houseNumber || apartment) {
+      addressLine = `${houseNumber}${apartment ? `, ${apartment}` : ''}`.trim();
+    } else {
+      addressLine = String(raw.fullAddress || '').trim();
+    }
+  }
+
+  const fullAddress = String(
+    raw.fullAddress ||
+    `${addressLine}${raw.area ? `, ${raw.area}` : ''}${raw.city ? `, ${raw.city}` : ''}`
+  ).trim();
+
+  // Infer area, city, pincode if missing
+  let area = String(raw.area || '').trim();
+  let city = String(raw.city || 'Mumbai').trim();
+  let state = String(raw.state || 'Maharashtra').trim();
+  let pincode = String(raw.pincode || '').trim();
+
+  if (!pincode && fullAddress) {
+    const pinMatch = fullAddress.match(/\b\d{6}\b/);
+    if (pinMatch) pincode = pinMatch[0];
+  }
+
+  if (!area && fullAddress) {
+    const parts = fullAddress.split(',').map((p) => p.trim());
+    if (parts.length >= 3) {
+      area = parts[parts.length - 2];
+    } else if (parts.length >= 2) {
+      area = parts[0];
+    }
+  }
+
+  const coordinates =
+    raw.coordinates &&
+    typeof raw.coordinates.lat === 'number' &&
+    typeof raw.coordinates.lng === 'number'
+      ? {
+          lat: Number(raw.coordinates.lat),
+          lng: Number(raw.coordinates.lng),
+        }
+      : undefined;
+
+  return {
+    _id: raw._id ? raw._id.toString() : raw.id,
+    user: raw.user ? raw.user.toString() : 'guest_demo',
+    label: tag,
+    tag,
+    fullName,
+    recipientName: fullName,
+    phone,
+    houseNumber,
+    apartment,
+    landmark,
+    addressLine,
+    address: addressLine,
+    fullAddress: fullAddress || `${addressLine}, ${area}, ${city} - ${pincode}`,
+    area: area || 'Locality',
+    city: city || 'Mumbai',
+    state: state || 'Maharashtra',
+    pincode: pincode || '400050',
+    placeId: String(raw.placeId || '').trim(),
+    coordinates,
+    isDefault: Boolean(raw.isDefault),
+    createdAt: raw.createdAt || new Date(),
+    updatedAt: raw.updatedAt || new Date(),
+  };
+};
+
+/**
  * Validate geographical coordinate bounds
  */
 const validateCoordinates = (coords) => {
@@ -40,15 +125,17 @@ const validateCoordinates = (coords) => {
 export const getAddresses = async (req, res) => {
   try {
     const userId = getUserId(req);
-    let addresses = [];
+    let rawAddresses = [];
 
     if (isDbConnected()) {
-      addresses = await Address.find({ user: userId }).sort({ isDefault: -1, createdAt: -1 });
+      rawAddresses = await Address.find({ user: userId }).sort({ isDefault: -1, createdAt: -1 });
     } else {
-      addresses = fallbackAddresses.filter(
+      rawAddresses = fallbackAddresses.filter(
         (a) => a.user.toString() === userId || userId === 'guest_demo'
       );
     }
+
+    const addresses = rawAddresses.map((a) => normalizeAddress(a, req.user));
 
     return res.status(200).json({
       success: true,
@@ -74,41 +161,99 @@ export const createAddress = async (req, res) => {
     const userId = getUserId(req);
     const {
       label,
+      tag,
+      fullName,
+      recipientName,
       fullAddress,
+      addressLine,
+      address,
       houseNumber,
       apartment,
       landmark,
       phone,
+      area,
+      city,
+      state,
+      pincode,
       placeId,
       coordinates,
       isDefault,
     } = req.body;
 
-    if (!fullAddress || typeof fullAddress !== 'string' || !fullAddress.trim()) {
+    // Field-specific validation
+    const resolvedName = String(fullName || recipientName || '').trim();
+    if (!resolvedName) {
       return res.status(400).json({
         success: false,
-        message: 'Full street address is required.',
+        message: 'Recipient name is required.',
+        field: 'recipientName',
       });
     }
 
-    if (!phone || typeof phone !== 'string' || !phone.trim()) {
+    const cleanPhone = String(phone || '').trim().replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 10) {
       return res.status(400).json({
         success: false,
-        message: 'Contact phone number is required.',
+        message: 'A valid 10-digit contact phone number is required.',
+        field: 'phone',
       });
     }
 
-    const coordCheck = validateCoordinates(coordinates);
-    if (!coordCheck.valid) {
+    const resolvedAddressLine = String(
+      addressLine || address || houseNumber || fullAddress || ''
+    ).trim();
+    if (!resolvedAddressLine) {
       return res.status(400).json({
         success: false,
-        message: coordCheck.message,
+        message: 'Street or house address is required.',
+        field: 'address',
       });
+    }
+
+    const resolvedArea = String(area || '').trim();
+    if (!resolvedArea && !fullAddress) {
+      return res.status(400).json({
+        success: false,
+        message: 'Locality or delivery area is required.',
+        field: 'area',
+      });
+    }
+
+    let resolvedPin = String(pincode || '').trim().replace(/\D/g, '');
+    if (!resolvedPin && fullAddress) {
+      const match = fullAddress.match(/\b\d{6}\b/);
+      if (match) resolvedPin = match[0];
+    }
+
+    if (!resolvedPin || resolvedPin.length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid 6-digit Indian PIN code is required.',
+        field: 'pincode',
+      });
+    }
+
+    let coordCheck = { valid: true, lat: 19.0607, lng: 72.8362 };
+    if (coordinates) {
+      coordCheck = validateCoordinates(coordinates);
+      if (!coordCheck.valid) {
+        return res.status(400).json({
+          success: false,
+          message: coordCheck.message,
+          field: 'coordinates',
+        });
+      }
     }
 
     const validLabels = ['Home', 'Work', 'College', 'Other'];
-    const sanitizedLabel = validLabels.includes(label) ? label : 'Home';
+    const chosenTag = label || tag || 'Home';
+    const sanitizedLabel = validLabels.includes(chosenTag) ? chosenTag : 'Home';
     const shouldBeDefault = Boolean(isDefault);
+
+    const resolvedFullAddress = String(
+      fullAddress ||
+      `${resolvedAddressLine}, ${resolvedArea || 'Locality'}, ${city || 'Mumbai'} - ${resolvedPin}`
+    ).trim();
 
     if (isDbConnected()) {
       // If setting as default, clear any existing default for this user
@@ -116,14 +261,23 @@ export const createAddress = async (req, res) => {
         await Address.updateMany({ user: userId }, { $set: { isDefault: false } });
       }
 
-      const newAddress = await Address.create({
+      const createdDoc = await Address.create({
         user: userId,
         label: sanitizedLabel,
-        fullAddress: fullAddress.trim(),
+        tag: sanitizedLabel,
+        fullName: resolvedName,
+        recipientName: resolvedName,
+        addressLine: resolvedAddressLine,
+        address: resolvedAddressLine,
+        fullAddress: resolvedFullAddress,
         houseNumber: (houseNumber || '').trim(),
         apartment: (apartment || '').trim(),
         landmark: (landmark || '').trim(),
-        phone: phone.trim(),
+        phone: cleanPhone,
+        area: resolvedArea || 'Locality',
+        city: (city || 'Mumbai').trim(),
+        state: (state || 'Maharashtra').trim(),
+        pincode: resolvedPin,
         placeId: (placeId || '').trim(),
         coordinates: {
           lat: coordCheck.lat,
@@ -132,12 +286,13 @@ export const createAddress = async (req, res) => {
         isDefault: shouldBeDefault,
       });
 
-      const allAddresses = await Address.find({ user: userId }).sort({ isDefault: -1, createdAt: -1 });
+      const rawAll = await Address.find({ user: userId }).sort({ isDefault: -1, createdAt: -1 });
+      const allAddresses = rawAll.map((a) => normalizeAddress(a, req.user));
 
       return res.status(201).json({
         success: true,
         message: 'Delivery address saved successfully.',
-        address: newAddress,
+        address: normalizeAddress(createdDoc, req.user),
         addresses: allAddresses,
       });
     }
@@ -153,11 +308,20 @@ export const createAddress = async (req, res) => {
       _id: `addr-${Date.now()}`,
       user: userId,
       label: sanitizedLabel,
-      fullAddress: fullAddress.trim(),
+      tag: sanitizedLabel,
+      fullName: resolvedName,
+      recipientName: resolvedName,
+      addressLine: resolvedAddressLine,
+      address: resolvedAddressLine,
+      fullAddress: resolvedFullAddress,
       houseNumber: (houseNumber || '').trim(),
       apartment: (apartment || '').trim(),
       landmark: (landmark || '').trim(),
-      phone: phone.trim(),
+      phone: cleanPhone,
+      area: resolvedArea || 'Locality',
+      city: (city || 'Mumbai').trim(),
+      state: (state || 'Maharashtra').trim(),
+      pincode: resolvedPin,
       placeId: (placeId || '').trim(),
       coordinates: {
         lat: coordCheck.lat,
@@ -170,12 +334,14 @@ export const createAddress = async (req, res) => {
 
     fallbackAddresses.unshift(fallbackDoc);
 
-    const userAddresses = fallbackAddresses.filter((a) => a.user.toString() === userId);
+    const userAddresses = fallbackAddresses
+      .filter((a) => a.user.toString() === userId)
+      .map((a) => normalizeAddress(a, req.user));
 
     return res.status(201).json({
       success: true,
       message: 'Delivery address saved successfully.',
-      address: fallbackDoc,
+      address: normalizeAddress(fallbackDoc, req.user),
       addresses: userAddresses,
     });
   } catch (error) {
@@ -198,26 +364,34 @@ export const updateAddress = async (req, res) => {
     const { addressId } = req.params;
     const {
       label,
+      tag,
+      fullName,
+      recipientName,
       fullAddress,
+      addressLine,
+      address: altAddress,
       houseNumber,
       apartment,
       landmark,
       phone,
+      area,
+      city,
+      state,
+      pincode,
       placeId,
       coordinates,
       isDefault,
     } = req.body;
 
-    let address = null;
+    let targetDoc = null;
     if (isDbConnected()) {
-      address = await Address.findById(addressId);
-      if (!address) {
+      targetDoc = await Address.findById(addressId);
+      if (!targetDoc) {
         return res.status(404).json({ success: false, message: 'Address not found.' });
       }
 
-      // Security: user can only modify their own address unless admin
       if (
-        address.user.toString() !== userId &&
+        targetDoc.user.toString() !== userId &&
         req.user?.role !== 'admin' &&
         userId !== 'guest_demo'
       ) {
@@ -232,16 +406,32 @@ export const updateAddress = async (req, res) => {
         if (!coordCheck.valid) {
           return res.status(400).json({ success: false, message: coordCheck.message });
         }
-        address.coordinates = { lat: coordCheck.lat, lng: coordCheck.lng };
+        targetDoc.coordinates = { lat: coordCheck.lat, lng: coordCheck.lng };
       }
 
-      if (label) address.label = label;
-      if (fullAddress) address.fullAddress = fullAddress.trim();
-      if (houseNumber !== undefined) address.houseNumber = houseNumber.trim();
-      if (apartment !== undefined) address.apartment = apartment.trim();
-      if (landmark !== undefined) address.landmark = landmark.trim();
-      if (phone) address.phone = phone.trim();
-      if (placeId !== undefined) address.placeId = placeId.trim();
+      const chosenTag = label || tag;
+      if (chosenTag) {
+        targetDoc.label = chosenTag;
+        targetDoc.tag = chosenTag;
+      }
+      if (fullName || recipientName) {
+        targetDoc.fullName = (fullName || recipientName).trim();
+        targetDoc.recipientName = targetDoc.fullName;
+      }
+      if (addressLine || altAddress) {
+        targetDoc.addressLine = (addressLine || altAddress).trim();
+        targetDoc.address = targetDoc.addressLine;
+      }
+      if (fullAddress) targetDoc.fullAddress = fullAddress.trim();
+      if (houseNumber !== undefined) targetDoc.houseNumber = houseNumber.trim();
+      if (apartment !== undefined) targetDoc.apartment = apartment.trim();
+      if (landmark !== undefined) targetDoc.landmark = landmark.trim();
+      if (phone) targetDoc.phone = phone.trim();
+      if (area) targetDoc.area = area.trim();
+      if (city) targetDoc.city = city.trim();
+      if (state) targetDoc.state = state.trim();
+      if (pincode) targetDoc.pincode = pincode.trim();
+      if (placeId !== undefined) targetDoc.placeId = placeId.trim();
 
       if (isDefault !== undefined) {
         if (isDefault) {
@@ -250,28 +440,29 @@ export const updateAddress = async (req, res) => {
             { $set: { isDefault: false } }
           );
         }
-        address.isDefault = Boolean(isDefault);
+        targetDoc.isDefault = Boolean(isDefault);
       }
 
-      await address.save();
-      const allAddresses = await Address.find({ user: userId }).sort({ isDefault: -1, createdAt: -1 });
+      await targetDoc.save();
+      const rawAll = await Address.find({ user: userId }).sort({ isDefault: -1, createdAt: -1 });
+      const allAddresses = rawAll.map((a) => normalizeAddress(a, req.user));
 
       return res.status(200).json({
         success: true,
         message: 'Delivery address updated successfully.',
-        address,
+        address: normalizeAddress(targetDoc, req.user),
         addresses: allAddresses,
       });
     }
 
     // In-memory fallback
-    address = fallbackAddresses.find((a) => a._id === addressId);
-    if (!address) {
+    targetDoc = fallbackAddresses.find((a) => a._id === addressId);
+    if (!targetDoc) {
       return res.status(404).json({ success: false, message: 'Address not found.' });
     }
 
     if (
-      address.user.toString() !== userId &&
+      targetDoc.user.toString() !== userId &&
       req.user?.role !== 'admin' &&
       userId !== 'guest_demo'
     ) {
@@ -286,16 +477,32 @@ export const updateAddress = async (req, res) => {
       if (!coordCheck.valid) {
         return res.status(400).json({ success: false, message: coordCheck.message });
       }
-      address.coordinates = { lat: coordCheck.lat, lng: coordCheck.lng };
+      targetDoc.coordinates = { lat: coordCheck.lat, lng: coordCheck.lng };
     }
 
-    if (label) address.label = label;
-    if (fullAddress) address.fullAddress = fullAddress.trim();
-    if (houseNumber !== undefined) address.houseNumber = houseNumber.trim();
-    if (apartment !== undefined) address.apartment = apartment.trim();
-    if (landmark !== undefined) address.landmark = landmark.trim();
-    if (phone) address.phone = phone.trim();
-    if (placeId !== undefined) address.placeId = placeId.trim();
+    const chosenTag = label || tag;
+    if (chosenTag) {
+      targetDoc.label = chosenTag;
+      targetDoc.tag = chosenTag;
+    }
+    if (fullName || recipientName) {
+      targetDoc.fullName = (fullName || recipientName).trim();
+      targetDoc.recipientName = targetDoc.fullName;
+    }
+    if (addressLine || altAddress) {
+      targetDoc.addressLine = (addressLine || altAddress).trim();
+      targetDoc.address = targetDoc.addressLine;
+    }
+    if (fullAddress) targetDoc.fullAddress = fullAddress.trim();
+    if (houseNumber !== undefined) targetDoc.houseNumber = houseNumber.trim();
+    if (apartment !== undefined) targetDoc.apartment = apartment.trim();
+    if (landmark !== undefined) targetDoc.landmark = landmark.trim();
+    if (phone) targetDoc.phone = phone.trim();
+    if (area) targetDoc.area = area.trim();
+    if (city) targetDoc.city = city.trim();
+    if (state) targetDoc.state = state.trim();
+    if (pincode) targetDoc.pincode = pincode.trim();
+    if (placeId !== undefined) targetDoc.placeId = placeId.trim();
 
     if (isDefault !== undefined) {
       if (isDefault) {
@@ -303,16 +510,18 @@ export const updateAddress = async (req, res) => {
           if (a.user.toString() === userId && a._id !== addressId) a.isDefault = false;
         });
       }
-      address.isDefault = Boolean(isDefault);
+      targetDoc.isDefault = Boolean(isDefault);
     }
 
-    address.updatedAt = new Date();
-    const userAddresses = fallbackAddresses.filter((a) => a.user.toString() === userId);
+    targetDoc.updatedAt = new Date();
+    const userAddresses = fallbackAddresses
+      .filter((a) => a.user.toString() === userId)
+      .map((a) => normalizeAddress(a, req.user));
 
     return res.status(200).json({
       success: true,
       message: 'Delivery address updated successfully.',
-      address,
+      address: normalizeAddress(targetDoc, req.user),
       addresses: userAddresses,
     });
   } catch (error) {
@@ -352,7 +561,8 @@ export const deleteAddress = async (req, res) => {
       }
 
       await Address.findByIdAndDelete(addressId);
-      const remaining = await Address.find({ user: userId }).sort({ isDefault: -1, createdAt: -1 });
+      const rawAll = await Address.find({ user: userId }).sort({ isDefault: -1, createdAt: -1 });
+      const remaining = rawAll.map((a) => normalizeAddress(a, req.user));
 
       return res.status(200).json({
         success: true,
@@ -380,7 +590,9 @@ export const deleteAddress = async (req, res) => {
     }
 
     fallbackAddresses.splice(idx, 1);
-    const remaining = fallbackAddresses.filter((a) => a.user.toString() === userId);
+    const remaining = fallbackAddresses
+      .filter((a) => a.user.toString() === userId)
+      .map((a) => normalizeAddress(a, req.user));
 
     return res.status(200).json({
       success: true,
@@ -427,13 +639,14 @@ export const setDefaultAddress = async (req, res) => {
       address.isDefault = true;
       await address.save();
 
-      const allAddresses = await Address.find({ user: userId }).sort({ isDefault: -1, createdAt: -1 });
+      const rawAll = await Address.find({ user: userId }).sort({ isDefault: -1, createdAt: -1 });
+      const allAddresses = rawAll.map((a) => normalizeAddress(a, req.user));
 
       return res.status(200).json({
         success: true,
         message: 'Address set as default successfully.',
         addresses: allAddresses,
-        address,
+        address: normalizeAddress(address, req.user),
       });
     }
 
@@ -459,13 +672,15 @@ export const setDefaultAddress = async (req, res) => {
     });
     address.isDefault = true;
 
-    const userAddresses = fallbackAddresses.filter((a) => a.user.toString() === userId);
+    const userAddresses = fallbackAddresses
+      .filter((a) => a.user.toString() === userId)
+      .map((a) => normalizeAddress(a, req.user));
 
     return res.status(200).json({
       success: true,
       message: 'Address set as default successfully.',
       addresses: userAddresses,
-      address,
+      address: normalizeAddress(address, req.user),
     });
   } catch (error) {
     return res.status(500).json({

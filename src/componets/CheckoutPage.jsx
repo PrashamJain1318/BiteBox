@@ -38,6 +38,85 @@ function loadRazorpayScript() {
   })
 }
 
+// Helper to normalize address objects ensuring all required fields exist
+function normalizeFrontendAddress(addr, defaultUser = null) {
+  if (!addr) return null
+  const fullName = String(addr.fullName || addr.recipientName || defaultUser?.name || 'Customer').trim()
+  const recipientName = fullName
+  const phone = String(addr.phone || '').trim()
+  const label = addr.label || addr.tag || 'Home'
+  const tag = ['Home', 'Work', 'College', 'Other'].includes(label) ? label : 'Home'
+  const houseNumber = String(addr.houseNumber || '').trim()
+  const apartment = String(addr.apartment || '').trim()
+  const landmark = String(addr.landmark || '').trim()
+
+  let addressLine = String(addr.addressLine || addr.address || '').trim()
+  if (!addressLine) {
+    if (houseNumber || apartment) {
+      addressLine = `${houseNumber}${apartment ? `, ${apartment}` : ''}`.trim()
+    } else {
+      addressLine = String(addr.fullAddress || '').trim()
+    }
+  }
+
+  let area = String(addr.area || '').trim()
+  let city = String(addr.city || 'Mumbai').trim()
+  let state = String(addr.state || 'Maharashtra').trim()
+  let pincode = String(addr.pincode || '').trim()
+  const fullAddress = String(
+    addr.fullAddress ||
+    `${addressLine}${area ? `, ${area}` : ''}${city ? `, ${city}` : ''}`
+  ).trim()
+
+  if (!pincode && fullAddress) {
+    const pinMatch = fullAddress.match(/\b\d{6}\b/)
+    if (pinMatch) pincode = pinMatch[0]
+  }
+
+  if (!area && fullAddress) {
+    const parts = fullAddress.split(',').map((p) => p.trim())
+    if (parts.length >= 3) {
+      area = parts[parts.length - 2]
+    } else if (parts.length >= 2) {
+      area = parts[0]
+    }
+  }
+
+  const coordinates =
+    addr.coordinates &&
+    typeof addr.coordinates.lat === 'number' &&
+    typeof addr.coordinates.lng === 'number'
+      ? {
+          lat: Number(addr.coordinates.lat),
+          lng: Number(addr.coordinates.lng),
+        }
+      : undefined
+
+  return {
+    ...addr,
+    _id: addr._id || addr.id || `addr-${Date.now()}`,
+    id: addr._id || addr.id || `addr-${Date.now()}`,
+    fullName,
+    recipientName,
+    phone,
+    label: tag,
+    tag,
+    houseNumber,
+    apartment,
+    landmark,
+    addressLine,
+    address: addressLine,
+    fullAddress: fullAddress || `${addressLine}, ${area}, ${city} - ${pincode}`,
+    area: area || 'Locality',
+    city: city || 'Mumbai',
+    state: state || 'Maharashtra',
+    pincode: pincode || '400050',
+    coordinates,
+    placeId: String(addr.placeId || '').trim(),
+    isDefault: Boolean(addr.isDefault),
+  }
+}
+
 export default function CheckoutPage() {
   const { cart, setCart } = useContext(CartContext)
   const { user } = useAuth()
@@ -67,6 +146,20 @@ export default function CheckoutPage() {
 
   // Selected address object
   const activeAddress = addresses.find((a) => (a._id || a.id) === selectedAddressId) || addresses[0]
+
+  // Detect whether active address is incomplete
+  const isAddressIncomplete = Boolean(
+    activeAddress && (
+      !activeAddress.fullName?.trim() ||
+      !activeAddress.phone?.trim() ||
+      String(activeAddress.phone).trim().replace(/\D/g, '').length < 10 ||
+      (!activeAddress.addressLine?.trim() && !activeAddress.fullAddress?.trim()) ||
+      !activeAddress.area?.trim() ||
+      !activeAddress.city?.trim() ||
+      !activeAddress.pincode?.trim() ||
+      String(activeAddress.pincode).trim().replace(/\D/g, '').length !== 6
+    )
+  )
 
   // City matching & cross-city delivery validation
   const cartRestaurantCity = cart[0]?.restaurantCity || selectedCity?.name || 'Bengaluru'
@@ -134,8 +227,9 @@ export default function CheckoutPage() {
         const res = await apiFetch('/addresses')
         const data = await res.json()
         if (data.success && Array.isArray(data.addresses) && data.addresses.length > 0) {
-          setAddresses(data.addresses)
-          const defaultAddr = data.addresses.find((a) => a.isDefault) || data.addresses[0]
+          const normalized = data.addresses.map((a) => normalizeFrontendAddress(a, user))
+          setAddresses(normalized)
+          const defaultAddr = normalized.find((a) => a.isDefault) || normalized[0]
           setSelectedAddressId(defaultAddr._id || defaultAddr.id)
           return
         }
@@ -148,8 +242,9 @@ export default function CheckoutPage() {
         const resAuth = await apiFetch('/auth/addresses')
         const dataAuth = await resAuth.json()
         if (dataAuth.success && Array.isArray(dataAuth.addresses) && dataAuth.addresses.length > 0) {
-          setAddresses(dataAuth.addresses)
-          const defaultAddr = dataAuth.addresses.find((a) => a.isDefault) || dataAuth.addresses[0]
+          const normalized = dataAuth.addresses.map((a) => normalizeFrontendAddress(a, user))
+          setAddresses(normalized)
+          const defaultAddr = normalized.find((a) => a.isDefault) || normalized[0]
           setSelectedAddressId(defaultAddr._id || defaultAddr.id)
           return
         }
@@ -162,6 +257,7 @@ export default function CheckoutPage() {
         {
           _id: 'demo-addr-1',
           fullName: user?.name || 'Prasham Jain',
+          recipientName: user?.name || 'Prasham Jain',
           phone: '9876543210',
           label: 'Home',
           tag: 'Home',
@@ -169,9 +265,11 @@ export default function CheckoutPage() {
           apartment: 'Sunshine Heights',
           landmark: 'Linking Road',
           addressLine: 'A-402, Sunshine Heights, Linking Road',
+          address: 'A-402, Sunshine Heights, Linking Road',
           fullAddress: 'A-402, Sunshine Heights, Linking Road, Bandra West, Mumbai, Maharashtra 400050',
           area: 'Bandra West',
           city: 'Mumbai',
+          state: 'Maharashtra',
           pincode: '400050',
           coordinates: { lat: 19.0607, lng: 72.8362 },
           isDefault: true,
@@ -179,6 +277,7 @@ export default function CheckoutPage() {
         {
           _id: 'demo-addr-2',
           fullName: user?.name || 'Prasham Jain',
+          recipientName: user?.name || 'Prasham Jain',
           phone: '9876543210',
           label: 'Work',
           tag: 'Work',
@@ -186,14 +285,17 @@ export default function CheckoutPage() {
           apartment: 'BKC Avenue',
           landmark: 'Near City Park',
           addressLine: 'Tech Hub Office, 7th Floor, BKC Avenue',
+          address: 'Tech Hub Office, 7th Floor, BKC Avenue',
           fullAddress: 'Tech Hub Office, 7th Floor, BKC Avenue, Bandra Kurla Complex, Mumbai, Maharashtra 400051',
           area: 'Bandra Kurla Complex',
           city: 'Mumbai',
+          state: 'Maharashtra',
           pincode: '400051',
           coordinates: { lat: 19.0673, lng: 72.8687 },
           isDefault: false,
         },
-      ]
+      ].map((a) => normalizeFrontendAddress(a, user))
+
       setAddresses(demoAddrs)
       setSelectedAddressId('demo-addr-1')
     }
@@ -203,16 +305,19 @@ export default function CheckoutPage() {
 
   // Handle address saved from Google Maps picker
   async function handleAddressSavedFromMap(savedAddrData) {
+    const normalizedInput = normalizeFrontendAddress(savedAddrData, user)
+
     try {
       const res = await apiFetch('/addresses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(savedAddrData),
+        body: JSON.stringify(normalizedInput),
       })
       const data = await res.json()
       if (data.success && data.address) {
-        setAddresses((prev) => [data.address, ...prev])
-        setSelectedAddressId(data.address._id || data.address.id)
+        const normalized = normalizeFrontendAddress(data.address, user)
+        setAddresses((prev) => [normalized, ...prev.filter((a) => (a._id || a.id) !== (normalized._id || normalized.id))])
+        setSelectedAddressId(normalized._id || normalized.id)
         setShowAddAddressModal(false)
         return
       }
@@ -224,12 +329,13 @@ export default function CheckoutPage() {
       const resAuth = await apiFetch('/auth/addresses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(savedAddrData),
+        body: JSON.stringify(normalizedInput),
       })
       const dataAuth = await resAuth.json()
       if (dataAuth.success && dataAuth.addresses) {
-        setAddresses(dataAuth.addresses)
-        const added = dataAuth.addresses[dataAuth.addresses.length - 1]
+        const normalizedList = dataAuth.addresses.map((a) => normalizeFrontendAddress(a, user))
+        setAddresses(normalizedList)
+        const added = normalizedList[normalizedList.length - 1]
         setSelectedAddressId(added._id || added.id)
         setShowAddAddressModal(false)
         return
@@ -238,7 +344,10 @@ export default function CheckoutPage() {
       // Local state fallback
     }
 
-    const localNew = { ...savedAddrData, _id: `local-addr-${Date.now()}` }
+    const localNew = normalizeFrontendAddress(
+      { ...normalizedInput, _id: `local-addr-${Date.now()}` },
+      user
+    )
     setAddresses((prev) => [localNew, ...prev])
     setSelectedAddressId(localNew._id)
     setShowAddAddressModal(false)
@@ -246,6 +355,8 @@ export default function CheckoutPage() {
 
   // Main Place Order & Payment Handler
   async function handlePlaceOrder() {
+    if (isProcessing) return
+
     if (cart.length === 0) {
       navigate('/cart')
       return
@@ -256,8 +367,45 @@ export default function CheckoutPage() {
       return
     }
 
-    if (!activeAddress.fullName || !activeAddress.phone || !activeAddress.addressLine || !activeAddress.area || !activeAddress.pincode) {
-      setErrorMessage('Please complete all delivery address fields (recipient name, phone, address, area, and pincode).')
+    const resolvedRecipient = String(activeAddress.fullName || activeAddress.recipientName || '').trim()
+    if (!resolvedRecipient) {
+      setErrorMessage('Please enter the delivery recipient name.')
+      return
+    }
+
+    const cleanPhone = String(activeAddress.phone || '').trim().replace(/\D/g, '')
+    if (!cleanPhone || cleanPhone.length < 10) {
+      setErrorMessage('Please enter a valid 10-digit mobile number.')
+      return
+    }
+
+    const resolvedAddressLine = String(
+      activeAddress.addressLine ||
+      activeAddress.address ||
+      activeAddress.houseNumber ||
+      activeAddress.fullAddress ||
+      ''
+    ).trim()
+    if (!resolvedAddressLine) {
+      setErrorMessage('Please enter house / flat and street address.')
+      return
+    }
+
+    const resolvedArea = String(activeAddress.area || '').trim()
+    if (!resolvedArea) {
+      setErrorMessage('Please enter delivery area / locality.')
+      return
+    }
+
+    const resolvedCity = String(activeAddress.city || '').trim()
+    if (!resolvedCity) {
+      setErrorMessage('Please enter delivery city.')
+      return
+    }
+
+    const cleanPincode = String(activeAddress.pincode || '').trim().replace(/\D/g, '')
+    if (!cleanPincode || cleanPincode.length !== 6) {
+      setErrorMessage('Please enter a valid 6-digit Indian PIN code.')
       return
     }
 
@@ -290,20 +438,26 @@ export default function CheckoutPage() {
           restaurantCitySlug: cartCityMatch?.slug || selectedCity?.slug,
           citySlug: cartCityMatch?.slug || selectedCity?.slug,
           deliveryAddress: {
-            fullName: String(activeAddress.fullName || '').trim(),
-            phone: String(activeAddress.phone || '').trim(),
+            fullName: resolvedRecipient,
+            recipientName: resolvedRecipient,
+            phone: cleanPhone,
             tag: ['Home', 'Work', 'College', 'Other'].includes(activeAddress.tag || activeAddress.label)
               ? (activeAddress.tag || activeAddress.label)
               : 'Home',
             label: String(activeAddress.label || activeAddress.tag || 'Home').trim(),
-            addressLine: String(activeAddress.addressLine || activeAddress.fullAddress || '').trim(),
-            fullAddress: String(activeAddress.fullAddress || activeAddress.addressLine || '').trim(),
+            addressLine: resolvedAddressLine,
+            address: resolvedAddressLine,
+            fullAddress: String(
+              activeAddress.fullAddress ||
+              `${resolvedAddressLine}, ${resolvedArea}, ${resolvedCity} - ${cleanPincode}`
+            ).trim(),
             houseNumber: String(activeAddress.houseNumber || '').trim(),
             apartment: String(activeAddress.apartment || '').trim(),
             landmark: String(activeAddress.landmark || '').trim(),
-            area: String(activeAddress.area || '').trim(),
-            city: String(activeAddress.city || 'Mumbai').trim(),
-            pincode: String(activeAddress.pincode || '').trim(),
+            area: resolvedArea,
+            city: resolvedCity,
+            state: String(activeAddress.state || 'Maharashtra').trim(),
+            pincode: cleanPincode,
             placeId: String(activeAddress.placeId || '').trim(),
             coordinates:
               activeAddress.coordinates?.lat && activeAddress.coordinates?.lng
@@ -759,6 +913,65 @@ export default function CheckoutPage() {
               </label>
             </div>
 
+            {/* Incomplete Address Warning Banner */}
+            {isAddressIncomplete && (
+              <div
+                className="address-incomplete-warning-banner"
+                style={{
+                  backgroundColor: '#FFFBEB',
+                  border: '1.5px solid #FCD34D',
+                  borderRadius: '10px',
+                  padding: '12px 16px',
+                  margin: '16px 0',
+                  color: '#92400E',
+                  fontSize: '13px',
+                  lineHeight: '1.5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>⚠️</span>
+                  <div>
+                    <strong style={{ display: 'block', color: '#78350F' }}>
+                      Incomplete Delivery Address
+                    </strong>
+                    <span>
+                      Missing required fields (
+                      {[
+                        !activeAddress?.fullName?.trim() && 'recipient name',
+                        (!activeAddress?.phone?.trim() || String(activeAddress?.phone).replace(/\D/g, '').length < 10) && '10-digit phone',
+                        (!activeAddress?.addressLine?.trim() && !activeAddress?.fullAddress?.trim()) && 'street/house',
+                        !activeAddress?.area?.trim() && 'area / locality',
+                        (!activeAddress?.pincode?.trim() || String(activeAddress?.pincode).replace(/\D/g, '').length !== 6) && '6-digit PIN code',
+                      ].filter(Boolean).join(', ')}
+                      ). Please complete to place your order.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddAddressModal(true)}
+                  style={{
+                    backgroundColor: '#D97706',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  ✏️ Complete Address Details
+                </button>
+              </div>
+            )}
+
             {/* Cross-City Delivery Mismatch Warning */}
             {isCityMismatch && (
               <div
@@ -778,9 +991,48 @@ export default function CheckoutPage() {
                   <span>🚫</span>
                   <span>Cross-City Delivery Not Supported</span>
                 </div>
-                <p style={{ margin: 0 }}>
-                  Delivery address is in <strong>{addressCityMatch?.name || activeAddress?.city}</strong>, but your selected restaurant is in <strong>{cartCityMatch?.name || cartRestaurantCity}</strong>. Please switch to an address in <strong>{cartCityMatch?.name || cartRestaurantCity}</strong> to place your order.
+                <p style={{ margin: '0 0 10px 0' }}>
+                  Delivery address is in <strong>{addressCityMatch?.name || activeAddress?.city}</strong>, but your selected restaurant is in <strong>{cartCityMatch?.name || cartRestaurantCity}</strong>. Please switch to an address in <strong>{cartCityMatch?.name || cartRestaurantCity}</strong> or clear your cart.
                 </p>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddAddressModal(true)}
+                    style={{
+                      backgroundColor: '#E53E3E',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📍 Switch Address to {cartCityMatch?.name || cartRestaurantCity}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCart([])
+                      localStorage.removeItem('bitebox_cart')
+                      sessionStorage.removeItem('bitebox_applied_coupon')
+                      navigate('/')
+                    }}
+                    style={{
+                      backgroundColor: '#FFFFFF',
+                      color: '#C53030',
+                      border: '1px solid #FEB2B2',
+                      borderRadius: '6px',
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🗑️ Clear Cart & Browse {addressCityMatch?.name || activeAddress?.city}
+                  </button>
+                </div>
               </div>
             )}
 

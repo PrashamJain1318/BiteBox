@@ -69,18 +69,73 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    if (
-      !deliveryAddress ||
-      !deliveryAddress.fullName ||
-      !deliveryAddress.phone ||
-      !deliveryAddress.addressLine ||
-      !deliveryAddress.area ||
-      !deliveryAddress.city ||
-      !deliveryAddress.pincode
-    ) {
+    if (!deliveryAddress || typeof deliveryAddress !== 'object') {
       return res.status(400).json({
         success: false,
-        message: 'Please provide a complete delivery address with recipient name, phone, and pincode.',
+        message: 'Delivery address is required.',
+        field: 'deliveryAddress',
+      });
+    }
+
+    const resolvedRecipientName = String(
+      deliveryAddress.fullName || deliveryAddress.recipientName || ''
+    ).trim();
+    if (!resolvedRecipientName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter recipient name.',
+        field: 'recipientName',
+      });
+    }
+
+    const cleanPhone = String(deliveryAddress.phone || '').trim().replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid 10-digit mobile number.',
+        field: 'phone',
+      });
+    }
+
+    const resolvedAddressLine = String(
+      deliveryAddress.addressLine ||
+      deliveryAddress.address ||
+      deliveryAddress.houseNumber ||
+      deliveryAddress.fullAddress ||
+      ''
+    ).trim();
+    if (!resolvedAddressLine) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter street address / house number.',
+        field: 'address',
+      });
+    }
+
+    const resolvedArea = String(deliveryAddress.area || '').trim();
+    if (!resolvedArea) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter delivery area / locality.',
+        field: 'area',
+      });
+    }
+
+    const resolvedCity = String(deliveryAddress.city || '').trim();
+    if (!resolvedCity) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter delivery city.',
+        field: 'city',
+      });
+    }
+
+    const cleanPincode = String(deliveryAddress.pincode || '').trim().replace(/\D/g, '');
+    if (!cleanPincode || cleanPincode.length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid 6-digit postal PIN code.',
+        field: 'pincode',
       });
     }
 
@@ -201,22 +256,26 @@ export const createOrder = async (req, res) => {
     const userId = (req.user && (req.user._id || req.user.id)) || req.body.userId || `guest_${Date.now()}`;
 
     const sanitizedAddress = {
-      fullName: String(deliveryAddress.fullName || '').trim(),
-      phone: String(deliveryAddress.phone || '').trim(),
-      tag: ['Home', 'Work', 'College', 'Other'].includes(deliveryAddress.tag)
-        ? deliveryAddress.tag
+      fullName: resolvedRecipientName,
+      recipientName: resolvedRecipientName,
+      phone: cleanPhone,
+      tag: ['Home', 'Work', 'College', 'Other'].includes(deliveryAddress.tag || deliveryAddress.label)
+        ? (deliveryAddress.tag || deliveryAddress.label)
         : 'Home',
       label: String(deliveryAddress.label || deliveryAddress.tag || 'Home').trim(),
-      addressLine: String(deliveryAddress.addressLine || '').trim(),
+      addressLine: resolvedAddressLine,
+      address: resolvedAddressLine,
       fullAddress: String(
-        deliveryAddress.fullAddress || deliveryAddress.addressLine || ''
+        deliveryAddress.fullAddress ||
+        `${resolvedAddressLine}, ${resolvedArea}, ${resolvedCity} - ${cleanPincode}`
       ).trim(),
       houseNumber: String(deliveryAddress.houseNumber || '').trim(),
       apartment: String(deliveryAddress.apartment || '').trim(),
       landmark: String(deliveryAddress.landmark || '').trim(),
-      area: String(deliveryAddress.area || '').trim(),
-      city: String(deliveryAddress.city || (cityConfig?.name || 'Mumbai')).trim(),
-      pincode: String(deliveryAddress.pincode || '').trim(),
+      area: resolvedArea,
+      city: resolvedCity,
+      state: String(deliveryAddress.state || 'Maharashtra').trim(),
+      pincode: cleanPincode,
       placeId: String(deliveryAddress.placeId || '').trim(),
       coordinates: hasValidCoords
         ? {
