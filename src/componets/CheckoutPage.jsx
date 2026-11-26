@@ -2,6 +2,8 @@ import { useState, useEffect, useContext } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { CartContext } from '../context/cartContext'
 import { useAuth } from '../context/AuthContext'
+import { useCity } from '../context/CityContext'
+import { matchSupportedCity } from '../data/cities'
 import { apiFetch } from '../api/apiConfig'
 import DeliveryLocationPicker from '../components/maps/DeliveryLocationPicker'
 import '../style.css'
@@ -39,6 +41,7 @@ function loadRazorpayScript() {
 export default function CheckoutPage() {
   const { cart, setCart } = useContext(CartContext)
   const { user } = useAuth()
+  const { selectedCity } = useCity()
   const navigate = useNavigate()
 
   // Addresses
@@ -65,6 +68,19 @@ export default function CheckoutPage() {
   // Selected address object
   const activeAddress = addresses.find((a) => (a._id || a.id) === selectedAddressId) || addresses[0]
 
+  // City matching & cross-city delivery validation
+  const cartRestaurantCity = cart[0]?.restaurantCity || selectedCity?.name || 'Bengaluru'
+  const cartRestaurantCitySlug = cart[0]?.restaurantCitySlug || selectedCity?.slug || 'bengaluru'
+  const addressCityMatch = activeAddress?.city ? matchSupportedCity(activeAddress.city) : null
+  const cartCityMatch = matchSupportedCity(cartRestaurantCitySlug || cartRestaurantCity)
+
+  const isCityMismatch = Boolean(
+    activeAddress?.city &&
+    addressCityMatch &&
+    cartCityMatch &&
+    addressCityMatch.slug !== cartCityMatch.slug
+  )
+
   // Calculate prices
   const itemTotal = cart.reduce((total, item) => total + item.price * (item.qty || 1), 0)
   const totalItems = cart.reduce((total, item) => total + (item.qty || 1), 0)
@@ -74,10 +90,10 @@ export default function CheckoutPage() {
   // Dynamic distance calculation if customer coords exist
   let calculatedDistanceKm = null
   if (activeAddress?.coordinates?.lat && activeAddress?.coordinates?.lng) {
-    const isSouthIndia = activeAddress.coordinates.lat < 15
-    const kitchen = isSouthIndia
-      ? { lat: 12.9352, lng: 77.6245 }
-      : { lat: 19.0596, lng: 72.8295 }
+    const kitchen =
+      cart[0]?.restaurantCoords ||
+      cartCityMatch?.coordinates ||
+      (activeAddress.coordinates.lat < 15 ? { lat: 12.9352, lng: 77.6245 } : { lat: 19.0596, lng: 72.8295 })
     calculatedDistanceKm = calculateDistanceInKm(
       kitchen.lat,
       kitchen.lng,
@@ -245,11 +261,18 @@ export default function CheckoutPage() {
       return
     }
 
+    if (isCityMismatch) {
+      setErrorMessage(
+        `Delivery address is in ${addressCityMatch?.name || activeAddress.city}, but your selected restaurant is in ${cartCityMatch?.name || cartRestaurantCity}. Cross-city ordering is not supported. Please select an address in ${cartCityMatch?.name || cartRestaurantCity}.`
+      )
+      return
+    }
+
     setIsProcessing(true)
     setErrorMessage('')
 
     try {
-      // 1. Create order on backend with sanitized data
+      // 1. Create order on backend with sanitized data & city tags
       const res = await apiFetch('/orders', {
         method: 'POST',
         body: JSON.stringify({
@@ -260,7 +283,12 @@ export default function CheckoutPage() {
             price: Number(i.price) || 0,
             image: i.img,
             restaurantName: i.restaurantName,
+            restaurantCity: i.restaurantCity || cartRestaurantCity,
+            restaurantCitySlug: i.restaurantCitySlug || cartRestaurantCitySlug,
+            restaurantCoords: i.restaurantCoords || (cartCityMatch?.coordinates),
           })),
+          restaurantCitySlug: cartCityMatch?.slug || selectedCity?.slug,
+          citySlug: cartCityMatch?.slug || selectedCity?.slug,
           deliveryAddress: {
             fullName: String(activeAddress.fullName || '').trim(),
             phone: String(activeAddress.phone || '').trim(),
@@ -731,6 +759,31 @@ export default function CheckoutPage() {
               </label>
             </div>
 
+            {/* Cross-City Delivery Mismatch Warning */}
+            {isCityMismatch && (
+              <div
+                className="city-mismatch-warning-card"
+                style={{
+                  backgroundColor: '#FFF5F5',
+                  border: '1.5px solid #FEB2B2',
+                  borderRadius: '10px',
+                  padding: '12px 16px',
+                  margin: '16px 0',
+                  color: '#C53030',
+                  fontSize: '13px',
+                  lineHeight: '1.5',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, marginBottom: '4px' }}>
+                  <span>🚫</span>
+                  <span>Cross-City Delivery Not Supported</span>
+                </div>
+                <p style={{ margin: 0 }}>
+                  Delivery address is in <strong>{addressCityMatch?.name || activeAddress?.city}</strong>, but your selected restaurant is in <strong>{cartCityMatch?.name || cartRestaurantCity}</strong>. Please switch to an address in <strong>{cartCityMatch?.name || cartRestaurantCity}</strong> to place your order.
+                </p>
+              </div>
+            )}
+
             {errorMessage && (
               <div className="checkout-error-banner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>⚠️ {errorMessage}</span>
@@ -757,10 +810,16 @@ export default function CheckoutPage() {
             <button
               type="button"
               className="place-order-btn"
-              disabled={isProcessing}
+              disabled={isProcessing || isCityMismatch}
               onClick={handlePlaceOrder}
+              style={{
+                opacity: isCityMismatch ? 0.6 : 1,
+                cursor: isCityMismatch ? 'not-allowed' : 'pointer',
+              }}
             >
-              {isProcessing
+              {isCityMismatch
+                ? `Cannot Deliver to ${addressCityMatch?.name || activeAddress?.city || 'Selected City'}`
+                : isProcessing
                 ? (paymentMethod === 'cod' ? 'Placing Order...' : 'Processing Payment...')
                 : paymentMethod === 'cod'
                 ? `Place Order (Cash on Delivery) • ₹${grandTotal}`

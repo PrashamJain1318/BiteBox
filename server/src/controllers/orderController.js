@@ -3,6 +3,7 @@ import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import { Order } from '../models/Order.js';
 import { Coupon } from '../models/Coupon.js';
+import { SUPPORTED_CITIES } from '../models/City.js';
 import { calculateOrderPricing } from '../utils/pricingCalculator.js';
 import {
   createSimulationSchedule,
@@ -91,6 +92,50 @@ export const createOrder = async (req, res) => {
       });
     }
 
+    // Multi-city validation: items cannot belong to different cities
+    const itemCitySlugs = [
+      ...new Set(
+        items
+          .map((i) => i.restaurantCitySlug || i.citySlug || (i.restaurantCity ? i.restaurantCity.toLowerCase() : null))
+          .filter(Boolean)
+      ),
+    ];
+    if (itemCitySlugs.length > 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'Your cart contains items from restaurants in multiple cities. Please order from one city at a time.',
+      });
+    }
+
+    const restaurantCitySlug =
+      itemCitySlugs[0] ||
+      (req.body.restaurantCitySlug ? req.body.restaurantCitySlug.toLowerCase() : null) ||
+      (req.body.citySlug ? req.body.citySlug.toLowerCase() : null) ||
+      null;
+
+    // Validate delivery address city against restaurant city
+    if (restaurantCitySlug && deliveryAddress.city) {
+      const matchCity = (input) => {
+        if (!input) return null;
+        const low = String(input).trim().toLowerCase();
+        for (const c of SUPPORTED_CITIES) {
+          if (c.slug === low || c.name.toLowerCase() === low) return c;
+          if (c.aliases && c.aliases.some((a) => a.toLowerCase() === low)) return c;
+        }
+        return { slug: low, name: input };
+      };
+
+      const matchedRestCity = matchCity(restaurantCitySlug);
+      const matchedAddrCity = matchCity(deliveryAddress.city);
+
+      if (matchedRestCity && matchedAddrCity && matchedRestCity.slug !== matchedAddrCity.slug) {
+        return res.status(400).json({
+          success: false,
+          message: `Delivery address is in ${matchedAddrCity.name || deliveryAddress.city}, but your selected restaurant is in ${matchedRestCity.name || restaurantCitySlug}. Cross-city ordering is not supported. Please select an address in ${matchedRestCity.name || restaurantCitySlug}.`,
+        });
+      }
+    }
+
     // 1. Fetch coupon if provided and validate server-side
     let appliedCoupon = null;
     let couponRecord = null;
@@ -109,10 +154,27 @@ export const createOrder = async (req, res) => {
         // Pre-validate coupon before applying
         const rawPricing = calculateOrderPricing(items, null).pricing;
         if (rawPricing.itemTotal >= (couponRecord.minOrderValue || 0)) {
+          // Check city restriction if coupon is city-specific
+          if (couponRecord.citySlug && couponRecord.citySlug !== 'all') {
+            const orderCity = (restaurantCitySlug || deliveryAddress.city || '').toLowerCase();
+            if (!orderCity.includes(couponRecord.citySlug.toLowerCase()) && couponRecord.citySlug.toLowerCase() !== orderCity) {
+              return res.status(400).json({
+                success: false,
+                message: `Coupon '${couponRecord.code}' is only valid for orders in ${couponRecord.citySlug.charAt(0).toUpperCase() + couponRecord.citySlug.slice(1)}.`,
+              });
+            }
+          }
           appliedCoupon = couponRecord;
         }
       }
     }
+
+    // Determine restaurant coordinates from city configuration or item coordinates
+    const cityConfig = restaurantCitySlug
+      ? SUPPORTED_CITIES.find((c) => c.slug === restaurantCitySlug || c.name.toLowerCase() === restaurantCitySlug)
+      : null;
+    const defaultRestCoords = cityConfig?.coordinates || { lat: 19.0596, lng: 72.8295 };
+    const restCoords = items[0]?.restaurantCoords || defaultRestCoords;
 
     // Clean and sanitize delivery address (removes client _id strings)
     const hasValidCoords =
@@ -125,7 +187,7 @@ export const createOrder = async (req, res) => {
     // 2. Compute final server-side validated pricing (with distance-based delivery fee if coords provided)
     const { sanitizedItems, pricing } = calculateOrderPricing(items, appliedCoupon, {
       customerCoords: hasValidCoords ? deliveryAddress.coordinates : undefined,
-      restaurantCoords: { lat: 19.0596, lng: 72.8295 },
+      restaurantCoords: restCoords,
     });
 
     if (sanitizedItems.length === 0 || pricing.grandTotal < 0) {
@@ -153,7 +215,7 @@ export const createOrder = async (req, res) => {
       apartment: String(deliveryAddress.apartment || '').trim(),
       landmark: String(deliveryAddress.landmark || '').trim(),
       area: String(deliveryAddress.area || '').trim(),
-      city: String(deliveryAddress.city || 'Mumbai').trim(),
+      city: String(deliveryAddress.city || (cityConfig?.name || 'Mumbai')).trim(),
       pincode: String(deliveryAddress.pincode || '').trim(),
       placeId: String(deliveryAddress.placeId || '').trim(),
       coordinates: hasValidCoords
@@ -167,6 +229,7 @@ export const createOrder = async (req, res) => {
     const placedAt = new Date();
     const simSchedule = createSimulationSchedule(placedAt, {
       restaurantName: sanitizedItems[0]?.restaurantName || 'BiteBox Partner Kitchen',
+      restaurantCoordinates: restCoords,
       destinationAddress:
         sanitizedAddress.fullAddress ||
         `${sanitizedAddress.addressLine}, ${sanitizedAddress.area}`,

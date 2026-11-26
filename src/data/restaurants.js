@@ -385,3 +385,10 @@ export const restaurants = restaurantInfo.map((restaurant, restaurantIndex) => {
     menu,
   }
 })
+
+export {
+  ALL_CITIES_RESTAURANTS,
+  getRestaurantsByCity,
+  getRestaurantById,
+  searchRestaurantsInCity,
+} from './multiCityRestaurants'

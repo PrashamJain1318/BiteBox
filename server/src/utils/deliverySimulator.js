@@ -66,8 +66,14 @@ export const createSimulationSchedule = (placedAt = new Date(), customOptions = 
       ? customOptions.destinationCoordinates.lng
       : DEFAULT_DEMO_ROUTE.destination.lng;
 
-  const restLat = DEFAULT_DEMO_ROUTE.restaurant.lat;
-  const restLng = DEFAULT_DEMO_ROUTE.restaurant.lng;
+  const restLat =
+    typeof customOptions.restaurantCoordinates?.lat === 'number'
+      ? customOptions.restaurantCoordinates.lat
+      : DEFAULT_DEMO_ROUTE.restaurant.lat;
+  const restLng =
+    typeof customOptions.restaurantCoordinates?.lng === 'number'
+      ? customOptions.restaurantCoordinates.lng
+      : DEFAULT_DEMO_ROUTE.restaurant.lng;
 
   // Generate realistic route waypoints connecting kitchen to selected customer destination
   const waypoints =

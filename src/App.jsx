@@ -17,6 +17,7 @@ import AdminCoupons from './componets/AdminCoupons'
 import ProtectedRoute from './componets/ProtectedRoute'
 import { CartContext } from './context/cartContext'
 import { AuthProvider } from './context/AuthContext'
+import { CityProvider } from './context/CityContext'
 import './style.css'
 
 function App() {
@@ -59,8 +60,9 @@ function App() {
 
   return (
     <AuthProvider>
-      <CartContext.Provider value={{ cart, setCart, isSqueezing }}>
-        <BrowserRouter>
+      <CityProvider>
+        <CartContext.Provider value={{ cart, setCart, isSqueezing }}>
+          <BrowserRouter>
           <Header />
 
           <Routes>
@@ -157,7 +159,8 @@ function App() {
           </Routes>
         </BrowserRouter>
       </CartContext.Provider>
-    </AuthProvider>
+    </CityProvider>
+  </AuthProvider>
   )
 }
 

@@ -1,19 +1,11 @@
-import { useState, useContext, useEffect } from 'react'
+import { useState, useContext, useEffect, useMemo } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { CartContext } from '../context/cartContext'
 import { useAuth } from '../context/AuthContext'
-import { restaurants } from '../data/restaurants'
+import { useCity } from '../context/CityContext'
+import { getRestaurantsByCity } from '../data/multiCityRestaurants'
+import CartCityConflictModal from '../components/CartCityConflictModal'
 import { products } from '../data/product'
-
-const POPULAR_LOCATIONS = [
-  { area: 'Koramangala', city: 'Bengaluru, Karnataka, India' },
-  { area: 'Indiranagar', city: 'Bengaluru, Karnataka, India' },
-  { area: 'HSR Layout', city: 'Bengaluru, Karnataka, India' },
-  { area: 'Whitefield', city: 'Bengaluru, Karnataka, India' },
-  { area: 'Church Street', city: 'Bengaluru, Karnataka, India' },
-  { area: 'Jayanagar', city: 'Bengaluru, Karnataka, India' },
-  { area: 'MG Road', city: 'Bengaluru, Karnataka, India' },
-]
 
 const OFFERS = [
   { code: 'BITEBOX60', title: '60% OFF up to ₹120', desc: 'Valid on orders above ₹199 across all restaurants', tag: 'TRENDING' },
@@ -23,19 +15,29 @@ const OFFERS = [
 ]
 
 export default function Header() {
-  const { cart } = useContext(CartContext)
+  const { cart, setCart } = useContext(CartContext)
   const { user, isAuthenticated, logout } = useAuth()
+  const {
+    selectedCity,
+    supportedCities,
+    popularCities,
+    detectCurrentLocation,
+    changeCityWithCartCheck,
+    cartConflict,
+    isDetectingLocation,
+    locationError,
+    setLocationError,
+  } = useCity()
   const navigate = useNavigate()
 
-  const [location, setLocation] = useState({ area: 'Koramangala', city: 'Bengaluru, Karnataka' })
   const [isLocationOpen, setIsLocationOpen] = useState(false)
+  const [citySearchQuery, setCitySearchQuery] = useState('')
   const [isOffersOpen, setIsOffersOpen] = useState(false)
   const [isHelpOpen, setIsHelpOpen] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [copiedCode, setCopiedCode] = useState('')
-  const [customLocationInput, setCustomLocationInput] = useState('')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const totalCartItems = cart.reduce((total, item) => total + (item.qty || 1), 0)
@@ -47,12 +49,17 @@ export default function Header() {
     setTimeout(() => setCopiedCode(''), 2500)
   }
 
-  // Live search results
-  const searchResults = (() => {
+  // Filter restaurants scoped to the currently selected city
+  const cityRestaurants = useMemo(() => {
+    return getRestaurantsByCity(selectedCity?.slug || 'bengaluru')
+  }, [selectedCity])
+
+  // Live search results strictly scoped to active city restaurants & dishes
+  const searchResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     if (!q) return { matchedRestaurants: [], matchedDishes: [] }
 
-    const matchedRestaurants = restaurants.filter(
+    const matchedRestaurants = cityRestaurants.filter(
       (r) =>
         r.name.toLowerCase().includes(q) ||
         r.cuisine.toLowerCase().includes(q) ||
@@ -67,7 +74,46 @@ export default function Header() {
     ).slice(0, 6)
 
     return { matchedRestaurants, matchedDishes }
-  })()
+  }, [searchQuery, cityRestaurants])
+
+  // Filter supported cities list by city search query
+  const filteredCities = useMemo(() => {
+    const q = citySearchQuery.trim().toLowerCase()
+    if (!q) return supportedCities
+    return supportedCities.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.state.toLowerCase().includes(q) ||
+        (c.popularAreas && c.popularAreas.some((a) => a.toLowerCase().includes(q)))
+    )
+  }, [citySearchQuery, supportedCities])
+
+  const handleSelectCity = async (city) => {
+    setLocationError(null)
+    const res = await changeCityWithCartCheck(city, cart, () => {
+      setCart([])
+      localStorage.removeItem('bitebox_cart')
+    })
+    if (res && res.success && !res.cancelled) {
+      setIsLocationOpen(false)
+      setCitySearchQuery('')
+    }
+  }
+
+  const handleDetectLocation = async () => {
+    setLocationError(null)
+    const res = await detectCurrentLocation()
+    if (res && res.success && res.city) {
+      const changeRes = await changeCityWithCartCheck(res.city, cart, () => {
+        setCart([])
+        localStorage.removeItem('bitebox_cart')
+      })
+      if (changeRes && changeRes.success && !changeRes.cancelled) {
+        setIsLocationOpen(false)
+        setCitySearchQuery('')
+      }
+    }
+  }
 
   // Close modals on Escape key
   useEffect(() => {
@@ -127,8 +173,8 @@ export default function Header() {
               onClick={() => setIsLocationOpen(true)}
               aria-label="Select delivery location"
             >
-              <span className="location-selector-btn__title">{location.area}</span>
-              <span className="location-selector-btn__sub">{location.city}</span>
+              <span className="location-selector-btn__title">📍 {selectedCity?.name || 'Bengaluru'}</span>
+              <span className="location-selector-btn__sub">{selectedCity?.state || 'Karnataka'}, India</span>
               <svg className="location-arrow-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="6 9 12 15 18 9" />
               </svg>
@@ -273,54 +319,165 @@ export default function Header() {
         )}
       </header>
 
-      {/* LOCATION MODAL */}
+      {/* CITY SELECTION MODAL */}
       {isLocationOpen && (
         <div className="swiggy-modal-backdrop" onClick={() => setIsLocationOpen(false)}>
-          <div className="swiggy-modal location-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="swiggy-modal location-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
             <div className="swiggy-modal__header">
-              <h3>Select Delivery Location</h3>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>Choose Your City</h3>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#686b78' }}>
+                  Currently serving {supportedCities.length} major Indian cities
+                </p>
+              </div>
               <button type="button" className="swiggy-modal__close" onClick={() => setIsLocationOpen(false)}>✕</button>
             </div>
-            <div className="location-modal__search">
-              <input
-                type="text"
-                placeholder="Search for area, street name..."
-                value={customLocationInput}
-                onChange={(e) => setCustomLocationInput(e.target.value)}
-              />
-              {customLocationInput && (
-                <button
-                  type="button"
-                  className="location-set-btn"
-                  onClick={() => {
-                    setLocation({ area: customLocationInput, city: 'Bengaluru, India' })
-                    setIsLocationOpen(false)
+
+            {/* Detect location button */}
+            <div style={{ padding: '16px 20px 0' }}>
+              <button
+                type="button"
+                className="detect-location-btn"
+                onClick={handleDetectLocation}
+                disabled={isDetectingLocation}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '12px 16px',
+                  backgroundColor: isDetectingLocation ? '#FFF5F0' : '#FFF0ED',
+                  color: '#FF5200',
+                  border: '1.5px dashed #FF5200',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  cursor: isDetectingLocation ? 'wait' : 'pointer',
+                  marginBottom: '12px',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <span>{isDetectingLocation ? '⌛' : '🎯'}</span>
+                <span>{isDetectingLocation ? 'Detecting your location...' : 'Detect My Current Location'}</span>
+              </button>
+
+              {/* Location Error / Unsupported City Banner */}
+              {locationError && (
+                <div
+                  className="location-error-banner"
+                  style={{
+                    backgroundColor: '#FFF5F5',
+                    border: '1px solid #FED7D7',
+                    borderRadius: '8px',
+                    padding: '10px 14px',
+                    color: '#C53030',
+                    fontSize: '13px',
+                    marginBottom: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                   }}
                 >
-                  Set Location
-                </button>
+                  <span>⚠️ {locationError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setLocationError(null)}
+                    style={{ background: 'none', border: 'none', color: '#C53030', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    ✕
+                  </button>
+                </div>
               )}
             </div>
-            <div className="location-modal__popular">
-              <span className="location-section-title">Popular Delivery Hubs</span>
-              <div className="location-list">
-                {POPULAR_LOCATIONS.map((loc) => (
+
+            {/* City Search Bar */}
+            <div className="location-modal__search" style={{ padding: '0 20px 12px' }}>
+              <input
+                type="text"
+                placeholder="Search city (e.g. Indore, Ahmedabad, Mumbai)..."
+                value={citySearchQuery}
+                onChange={(e) => setCitySearchQuery(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            {/* Popular Cities Chips */}
+            <div className="location-modal__popular" style={{ padding: '0 20px 12px' }}>
+              <span className="location-section-title" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.6px', color: '#686b78', fontWeight: 700 }}>
+                Popular Cities
+              </span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
+                {popularCities.map((city) => (
                   <button
-                    key={loc.area}
+                    key={city.slug}
                     type="button"
-                    className={`location-item ${location.area === loc.area ? 'selected' : ''}`}
-                    onClick={() => {
-                      setLocation(loc)
-                      setIsLocationOpen(false)
+                    className={`popular-city-chip ${selectedCity?.slug === city.slug ? 'active' : ''}`}
+                    onClick={() => handleSelectCity(city)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '16px',
+                      border: selectedCity?.slug === city.slug ? '1.5px solid #FF5200' : '1px solid #e2e8f0',
+                      background: selectedCity?.slug === city.slug ? '#FFF0ED' : '#ffffff',
+                      color: selectedCity?.slug === city.slug ? '#FF5200' : '#282c3f',
+                      fontWeight: selectedCity?.slug === city.slug ? 700 : 500,
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      transition: 'all 0.15s ease',
                     }}
                   >
-                    <span className="location-icon">📍</span>
-                    <div>
-                      <strong>{loc.area}</strong>
-                      <small>{loc.city}</small>
-                    </div>
+                    {selectedCity?.slug === city.slug && <span>✓</span>}
+                    {city.name}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* All Supported Cities List */}
+            <div className="location-modal__all-cities" style={{ padding: '0 20px 20px' }}>
+              <span className="location-section-title" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.6px', color: '#686b78', fontWeight: 700 }}>
+                All Supported Cities ({filteredCities.length})
+              </span>
+              <div className="location-list" style={{ maxHeight: '240px', overflowY: 'auto', marginTop: '8px' }}>
+                {filteredCities.map((city) => (
+                  <button
+                    key={city.slug}
+                    type="button"
+                    className={`location-item ${selectedCity?.slug === city.slug ? 'selected' : ''}`}
+                    onClick={() => handleSelectCity(city)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      width: '100%',
+                      padding: '10px 12px',
+                      textAlign: 'left',
+                      borderBottom: '1px solid #f0f0f0',
+                      background: selectedCity?.slug === city.slug ? '#F9FAFB' : 'transparent',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '18px' }}>📍</span>
+                      <div>
+                        <strong style={{ display: 'block', fontSize: '14px', color: '#1c1c1c' }}>{city.name}</strong>
+                        <small style={{ color: '#7e808c', fontSize: '12px' }}>{city.state}, {city.country}</small>
+                      </div>
+                    </div>
+                    {selectedCity?.slug === city.slug && (
+                      <span style={{ color: '#FF5200', fontWeight: 700, fontSize: '13px' }}>Selected ✓</span>
+                    )}
+                  </button>
+                ))}
+                {filteredCities.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '24px 12px', color: '#686b78' }}>
+                    <p style={{ margin: 0, fontWeight: 500 }}>BiteBox is not available in &quot;{citySearchQuery}&quot; yet.</p>
+                    <small style={{ color: '#93959f', display: 'block', marginTop: '4px' }}>We are expanding to more cities soon!</small>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -540,12 +697,12 @@ export default function Header() {
                 </Link>
               )}
               <div className="profile-menu-item">
-                <span>📍 Default Area</span>
-                <strong>{location.area}, Mumbai</strong>
+                <span>📍 Selected City</span>
+                <strong>{selectedCity?.name || 'Bengaluru'}, {selectedCity?.state || 'Karnataka'}</strong>
               </div>
               <div className="profile-menu-item">
                 <span>🎁 Active Discounts</span>
-                <strong>5 Coupons Available (BITEBOX20, FLAT50...)</strong>
+                <strong>Coupons Available for {selectedCity?.name || 'All Cities'}</strong>
               </div>
               <button
                 type="button"
@@ -558,6 +715,9 @@ export default function Header() {
           </div>
         </div>
       )}
+
+      {/* Cart City Conflict Modal */}
+      <CartCityConflictModal conflict={cartConflict} />
     </>
   )
 }

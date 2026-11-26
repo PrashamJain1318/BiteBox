@@ -77,6 +77,12 @@ const couponSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    citySlug: {
+      type: String,
+      default: null, // null means all cities, or specific city slug like 'indore', 'mumbai'
+      lowercase: true,
+      trim: true,
+    },
     applicableRestaurants: [
       {
         type: String,
@@ -93,8 +99,8 @@ const couponSchema = new mongoose.Schema(
   }
 );
 
-// Method to check if coupon is valid for a given order value and user
-couponSchema.methods.isValidFor = function (orderValue, userOrderCount = 0, userId = null) {
+// Method to check if coupon is valid for a given order value, user, and city
+couponSchema.methods.isValidFor = function (orderValue, userOrderCount = 0, userId = null, citySlug = null) {
   const now = new Date();
 
   // 1. Check active status
@@ -138,6 +144,17 @@ couponSchema.methods.isValidFor = function (orderValue, userOrderCount = 0, user
     }
   }
 
+  // 7. Check city restriction if coupon is city-specific
+  if (this.citySlug && this.citySlug !== 'all') {
+    if (!citySlug || this.citySlug.toLowerCase() !== citySlug.toLowerCase()) {
+      const cityName = this.citySlug.charAt(0).toUpperCase() + this.citySlug.slice(1);
+      return {
+        valid: false,
+        message: `Coupon '${this.code}' is only valid for orders in ${cityName}.`,
+      };
+    }
+  }
+
   return { valid: true };
 };
 
@@ -153,6 +170,7 @@ export const INITIAL_SAMPLE_COUPONS = [
     firstOrderOnly: true,
     perUserLimit: 1,
     isActive: true,
+    citySlug: null,
     expiryDate: new Date('2027-12-31'),
   },
   {
@@ -165,6 +183,7 @@ export const INITIAL_SAMPLE_COUPONS = [
     firstOrderOnly: false,
     perUserLimit: 3,
     isActive: true,
+    citySlug: null,
     expiryDate: new Date('2027-12-31'),
   },
   {
@@ -177,6 +196,7 @@ export const INITIAL_SAMPLE_COUPONS = [
     firstOrderOnly: false,
     perUserLimit: 5,
     isActive: true,
+    citySlug: null,
     expiryDate: new Date('2027-12-31'),
   },
   {
@@ -189,6 +209,7 @@ export const INITIAL_SAMPLE_COUPONS = [
     firstOrderOnly: false,
     perUserLimit: 5,
     isActive: true,
+    citySlug: null,
     expiryDate: new Date('2027-12-31'),
   },
   {
@@ -201,6 +222,46 @@ export const INITIAL_SAMPLE_COUPONS = [
     firstOrderOnly: false,
     perUserLimit: 4,
     isActive: true,
+    citySlug: null,
+    expiryDate: new Date('2027-12-31'),
+  },
+  {
+    code: 'INDORE20',
+    description: 'Sarafa & Chappan special! 20% OFF up to ₹150 in Indore.',
+    discountType: 'percentage',
+    discountValue: 20,
+    minOrderValue: 249,
+    maxDiscount: 150,
+    firstOrderOnly: false,
+    perUserLimit: 3,
+    isActive: true,
+    citySlug: 'indore',
+    expiryDate: new Date('2027-12-31'),
+  },
+  {
+    code: 'MUMBAI30',
+    description: 'Amchi Mumbai feast! Flat 30% OFF up to ₹250.',
+    discountType: 'percentage',
+    discountValue: 30,
+    minOrderValue: 399,
+    maxDiscount: 250,
+    firstOrderOnly: false,
+    perUserLimit: 3,
+    isActive: true,
+    citySlug: 'mumbai',
+    expiryDate: new Date('2027-12-31'),
+  },
+  {
+    code: 'BLR100',
+    description: 'Bengaluru techie delight! Flat ₹100 OFF on orders above ₹499.',
+    discountType: 'flat',
+    discountValue: 100,
+    minOrderValue: 499,
+    maxDiscount: 100,
+    firstOrderOnly: false,
+    perUserLimit: 3,
+    isActive: true,
+    citySlug: 'bengaluru',
     expiryDate: new Date('2027-12-31'),
   },
 ];

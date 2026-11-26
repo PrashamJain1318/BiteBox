@@ -1,11 +1,17 @@
 import { useState, useEffect } from 'react';
 
 const CITIES = [
-  { name: 'Bengaluru', state: 'Karnataka', area: 'Koramangala, Indiranagar, HSR, Whitefield' },
+  { name: 'Indore', state: 'Madhya Pradesh', area: 'Sarafa, Chappan Dukan, Vijay Nagar' },
+  { name: 'Ahmedabad', state: 'Gujarat', area: 'Manek Chowk, SG Highway, Navrangpura' },
   { name: 'Mumbai', state: 'Maharashtra', area: 'Bandra, Andheri, Powai, Colaba' },
-  { name: 'Delhi NCR', state: 'Delhi', area: 'Connaught Place, Gurgaon, Noida, Saket' },
-  { name: 'Hyderabad', state: 'Telangana', area: 'HITEC City, Banjara Hills, Gachibowli, Jubilee Hills' },
-  { name: 'Pune', state: 'Maharashtra', area: 'Koregaon Park, Viman Nagar, Hinjewadi, Kothrud' },
+  { name: 'Nagpur', state: 'Maharashtra', area: 'Dharampeth, Sadar, Sitabuldi' },
+  { name: 'Delhi', state: 'Delhi', area: 'Connaught Place, Karol Bagh, Saket, Chandni Chowk' },
+  { name: 'Raipur', state: 'Chhattisgarh', area: 'Marine Drive, Pandri, Shankar Nagar' },
+  { name: 'Neemuch', state: 'Madhya Pradesh', area: 'Tagore Marg, CRPF Colony, Scheme No 36' },
+  { name: 'Kolkata', state: 'West Bengal', area: 'Park Street, Salt Lake, Esplanade' },
+  { name: 'Bengaluru', state: 'Karnataka', area: 'Koramangala, Indiranagar, HSR, Whitefield' },
+  { name: 'Chennai', state: 'Tamil Nadu', area: 'T Nagar, Mylapore, Nungambakkam' },
+  { name: 'Hyderabad', state: 'Telangana', area: 'HITEC City, Banjara Hills, Jubilee Hills' },
 ];
 
 const FAQS = [

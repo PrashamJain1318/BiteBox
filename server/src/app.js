@@ -17,6 +17,8 @@ import couponRoutes from './routes/couponRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import addressRoutes from './routes/addressRoutes.js';
+import cityRoutes from './routes/cityRoutes.js';
+import restaurantRoutes from './routes/restaurantRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 
 dotenv.config();
@@ -95,6 +97,12 @@ app.use('/api/coupons', couponRoutes); // Alias for compatibility
 // Address Management routes
 app.use('/api/v1/addresses', addressRoutes);
 app.use('/api/addresses', addressRoutes); // Alias for compatibility
+
+// City and Restaurant routes
+app.use('/api/v1/cities', cityRoutes);
+app.use('/api/cities', cityRoutes); // Alias
+app.use('/api/v1/restaurants', restaurantRoutes);
+app.use('/api/restaurants', restaurantRoutes); // Alias
 
 // Order Management routes
 app.use('/api/v1/orders', orderRoutes);

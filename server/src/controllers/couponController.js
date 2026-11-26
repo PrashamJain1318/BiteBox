@@ -141,6 +141,18 @@ export const validateCoupon = async (req, res) => {
       }
     }
 
+    // Check city restriction if coupon is city-specific
+    const citySlug = (req.body.citySlug || req.body.city || items[0]?.restaurantCitySlug || items[0]?.citySlug || '').trim().toLowerCase();
+    if (coupon.citySlug && coupon.citySlug !== 'all') {
+      if (!citySlug || coupon.citySlug.toLowerCase() !== citySlug) {
+        const cityName = coupon.citySlug.charAt(0).toUpperCase() + coupon.citySlug.slice(1);
+        return res.status(400).json({
+          success: false,
+          message: `Coupon '${cleanCode}' is only valid for orders in ${cityName}.`,
+        });
+      }
+    }
+
     // 4. Calculate final server-verified pricing with coupon applied
     const { pricing } = calculateOrderPricing(items, coupon);
 
@@ -154,6 +166,7 @@ export const validateCoupon = async (req, res) => {
         discountValue: coupon.discountValue,
         maxDiscount: coupon.maxDiscount,
         discountAmount: pricing.discount,
+        citySlug: coupon.citySlug || null,
       },
       pricing,
     });
@@ -175,18 +188,26 @@ export const validateCoupon = async (req, res) => {
 export const getAvailableCoupons = async (req, res) => {
   try {
     const now = new Date();
+    const city = (req.query?.city || req.query?.citySlug || '').trim().toLowerCase();
     let coupons = [];
 
     if (isDbConnected()) {
-      coupons = await Coupon.find({
+      const query = {
         isActive: true,
         expiryDate: { $gt: now },
-      })
-        .select('code description discountType discountValue minOrderValue maxDiscount firstOrderOnly expiryDate')
+      };
+      if (city) {
+        query.$or = [{ citySlug: null }, { citySlug: 'all' }, { citySlug: city }];
+      }
+      coupons = await Coupon.find(query)
+        .select('code description discountType discountValue minOrderValue maxDiscount firstOrderOnly expiryDate citySlug')
         .sort({ minOrderValue: 1 });
     } else {
-      coupons = fallbackCoupons.filter(
-        (c) => c.isActive && new Date(c.expiryDate) > now
+      coupons = INITIAL_SAMPLE_COUPONS.filter(
+        (c) =>
+          c.isActive &&
+          new Date(c.expiryDate) > now &&
+          (!city || !c.citySlug || c.citySlug === 'all' || c.citySlug.toLowerCase() === city)
       );
     }
 

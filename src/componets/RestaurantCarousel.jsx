@@ -1,10 +1,14 @@
 import { useRef, useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 
-export default function RestaurantCarousel({ restaurants = [] }) {
+export default function RestaurantCarousel({ restaurants = [], cityName = '' }) {
   const scrollRef = useRef(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(true)
+
+  if (!restaurants || restaurants.length === 0) {
+    return null
+  }
 
   const checkScroll = () => {
     if (!scrollRef.current) return
@@ -37,7 +41,9 @@ export default function RestaurantCarousel({ restaurants = [] }) {
     <section className="restaurant-carousel-section">
       <div className="section-header-row">
         <div>
-          <h2 className="swiggy-section-title">Top restaurant chains near you</h2>
+          <h2 className="swiggy-section-title">
+            {cityName ? `Top restaurant chains in ${cityName}` : 'Top restaurant chains near you'}
+          </h2>
         </div>
         <div className="carousel-nav-buttons">
           <button

@@ -1,5 +1,7 @@
-import { useState } from 'react'
-import { restaurants } from '../data/restaurants'
+import { useState, useMemo, useContext } from 'react'
+import { getRestaurantsByCity } from '../data/multiCityRestaurants'
+import { useCity } from '../context/CityContext'
+import { CartContext } from '../context/cartContext'
 import OffersCarousel from './OffersCarousel'
 import FoodCategories from './FoodCategories'
 import RestaurantCarousel from './RestaurantCarousel'
@@ -8,21 +10,29 @@ import BiteBox3D from './BiteBox3D'
 import Footer from './Footer'
 
 export default function Home() {
+  const { selectedCity, changeCityWithCartCheck } = useCity()
+  const { cart, setCart } = useContext(CartContext)
   const [selectedCategory, setSelectedCategory] = useState(null)
-  const [selectedCity, setSelectedCity] = useState(null)
   const [show3DBox, setShow3DBox] = useState(false)
+
+  // Strictly filter restaurants by active city slug
+  const cityRestaurants = useMemo(() => {
+    return getRestaurantsByCity(selectedCity?.slug || 'bengaluru')
+  }, [selectedCity])
 
   const handleSelectCategory = (categoryId) => {
     setSelectedCategory((prev) => (prev === categoryId ? null : categoryId))
-    // Smooth scroll down to the restaurant listing section
     const listingEl = document.getElementById('restaurants')
     if (listingEl) {
       listingEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }
 
-  const handleSelectCity = (cityName) => {
-    setSelectedCity(cityName)
+  const handleSelectCity = async (cityName) => {
+    await changeCityWithCartCheck(cityName, cart, () => {
+      setCart([])
+      localStorage.removeItem('bitebox_cart')
+    })
     const listingEl = document.getElementById('restaurants')
     if (listingEl) {
       listingEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -44,21 +54,24 @@ export default function Home() {
 
       <div className="swiggy-divider" />
 
-      {/* 2. TOP RESTAURANT CHAINS CAROUSEL */}
-      <RestaurantCarousel restaurants={restaurants} />
+      {/* 3. TOP RESTAURANT CHAINS CAROUSEL (City scoped) */}
+      <RestaurantCarousel
+        restaurants={cityRestaurants}
+        cityName={selectedCity?.name}
+      />
 
       <div className="swiggy-divider" />
 
-      {/* 3. RESTAURANTS WITH ONLINE FOOD DELIVERY (Grid, Filters, Sorting) */}
+      {/* 4. RESTAURANTS WITH ONLINE FOOD DELIVERY (Grid, Filters, Sorting) */}
       <RestaurantListing
-        restaurants={restaurants}
+        restaurants={cityRestaurants}
         activeCategory={selectedCategory}
         onClearCategory={() => setSelectedCategory(null)}
-        activeCity={selectedCity}
-        onClearCity={() => setSelectedCity(null)}
+        activeCity={selectedCity?.name}
+        onClearCity={() => {}}
       />
 
-      {/* 4. OPTIONAL 3D INTERACTIVE BITEBOX FEATURE BANNER */}
+      {/* 5. OPTIONAL 3D INTERACTIVE BITEBOX FEATURE BANNER */}
       <section className="bitebox-interactive-banner">
         <div className="interactive-banner__inner">
           <div className="interactive-banner__text">
@@ -81,7 +94,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 5. APP DOWNLOAD & FOOTER (Fully Interactive) */}
+      {/* 6. APP DOWNLOAD & FOOTER (Fully Interactive) */}
       <Footer onSelectCity={handleSelectCity} />
     </main>
   )

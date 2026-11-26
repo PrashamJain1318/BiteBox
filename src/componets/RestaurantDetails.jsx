@@ -1,7 +1,9 @@
 import { useMemo, useState, useContext } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { restaurants } from '../data/restaurants'
+import { getRestaurantById } from '../data/multiCityRestaurants'
+import { restaurants as fallbackRestaurants } from '../data/restaurants'
 import { CartContext } from '../context/cartContext'
+import { useCity } from '../context/CityContext'
 
 const menuCategories = [
   { label: 'All Items', value: 'all' },
@@ -14,8 +16,11 @@ const menuCategories = [
 export default function RestaurantDetails() {
   const { restaurantId } = useParams()
   const { cart, setCart } = useContext(CartContext)
+  const { selectedCity, changeCityWithCartCheck } = useCity()
 
-  const restaurant = restaurants.find((item) => item.id === restaurantId)
+  const restaurant = useMemo(() => {
+    return getRestaurantById(restaurantId) || fallbackRestaurants.find((item) => item.id === restaurantId)
+  }, [restaurantId])
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [dietFilter, setDietFilter] = useState('all') // 'all' | 'veg' | 'non-veg'
   const [searchQuery, setSearchQuery] = useState('')
@@ -55,12 +60,38 @@ export default function RestaurantDetails() {
     return item ? (item.qty || 1) : 0
   }
 
-  const handleAddToCart = (product) => {
+  const handleAddToCart = async (product) => {
+    const itemWithRestaurant = {
+      ...product,
+      restaurantId: restaurant.restaurantId || restaurant.id,
+      restaurantName: restaurant.name,
+      restaurantCity: restaurant.city,
+      restaurantCitySlug: restaurant.citySlug || (restaurant.city ? restaurant.city.toLowerCase() : 'bengaluru'),
+      restaurantCoords: restaurant.coordinates,
+    }
+
+    // Check if cart already contains items from a different city
+    if (cart.length > 0) {
+      const existingItem = cart[0]
+      const cartCity = existingItem.restaurantCitySlug || (existingItem.restaurantCity ? existingItem.restaurantCity.toLowerCase() : null)
+      const thisCity = restaurant.citySlug || (restaurant.city ? restaurant.city.toLowerCase() : null)
+
+      if (cartCity && thisCity && cartCity !== thisCity) {
+        const proceed = await changeCityWithCartCheck(restaurant.citySlug || restaurant.city, cart, () => {
+          setCart([])
+          localStorage.removeItem('bitebox_cart')
+        })
+        if (!proceed || !proceed.success || proceed.cancelled) {
+          return
+        }
+      }
+    }
+
     const existing = cart.find((i) => i.id === product.id)
     if (existing) {
       setCart(cart.map((i) => (i.id === product.id ? { ...i, qty: (i.qty || 1) + 1 } : i)))
     } else {
-      setCart([...cart, { ...product, qty: 1 }])
+      setCart([...cart, { ...itemWithRestaurant, qty: 1 }])
     }
   }
 
@@ -74,13 +105,64 @@ export default function RestaurantDetails() {
     }
   }
 
+  const isCityMismatch =
+    restaurant.citySlug &&
+    selectedCity?.slug &&
+    restaurant.citySlug.toLowerCase() !== selectedCity.slug.toLowerCase()
+
   return (
     <main className="swiggy-menu-container">
+      {/* City Mismatch Warning Banner */}
+      {isCityMismatch && (
+        <div
+          className="city-mismatch-banner"
+          style={{
+            backgroundColor: '#FFF9E6',
+            border: '1px solid #FFE082',
+            borderRadius: '10px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '13px',
+            color: '#7A5200',
+            flexWrap: 'wrap',
+            gap: '10px',
+          }}
+        >
+          <span>
+            📍 This restaurant is located in <strong>{restaurant.city}</strong> (your selected city in navbar is <strong>{selectedCity.name}</strong>).
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              changeCityWithCartCheck(restaurant.citySlug || restaurant.city, cart, () => {
+                setCart([])
+                localStorage.removeItem('bitebox_cart')
+              })
+            }
+            style={{
+              background: '#FF5200',
+              color: '#fff',
+              border: 'none',
+              padding: '6px 14px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Switch City to {restaurant.city}
+          </button>
+        </div>
+      )}
+
       {/* Breadcrumbs */}
       <nav className="menu-breadcrumbs" aria-label="Breadcrumb">
         <Link to="/">Home</Link>
         <span className="crumb-sep">/</span>
-        <span>Bengaluru</span>
+        <span>{restaurant.city || 'Bengaluru'}</span>
         <span className="crumb-sep">/</span>
         <span>{restaurant.location}</span>
         <span className="crumb-sep">/</span>
